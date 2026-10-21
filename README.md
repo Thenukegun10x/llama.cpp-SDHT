@@ -68,7 +68,7 @@ ctest --test-dir build-hip -C Release -R "^test-prism-(smooth-dht|tq1-0-128)$" -
 
 `test-prism-smooth-dht` compares synthetic plain and folded models. `test-prism-tq1-0-128` compares CPU, native GPU matrix-vector, and dequantized fallback paths against F16/Q8 controls. The latter test requires a working CUDA/HIP backend to validate distinct GPU paths; it is not a CPU-only pass criterion. Both tests write small synthetic GGUF files in the test working directory.
 
-The published source is pinned to runtime commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. Existing Windows HIP usage provides evidence for that setup. CUDA code is included, but a new NVIDIA validation run and broad backend support are not claimed. The additional custom format is not implemented for every backend inherited from upstream.
+The published source is pinned to runtime commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. The AMD HIP backend works on the tested Windows setup. The NVIDIA CUDA backend has also been tested by the maintainer and confirmed to work well. The additional custom format is not implemented for every backend inherited from upstream.
 
 Upstream GitHub Actions are retained with `.disabled` suffixes so publication does not automatically launch the upstream build/release matrix. Enable selected workflows after adapting them for this repository.
 
