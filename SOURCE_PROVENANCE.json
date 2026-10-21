@@ -1,0 +1,292 @@
+{
+  "repository_name": "llama.cpp-SDHT",
+  "upstream_url": "https://github.com/ggml-org/llama.cpp",
+  "upstream_base_commit": "6afa9a3134dc4833ab58e625464aa67e5fc7eea5",
+  "runtime_source_commit": "3a75675bffeeaa3c8a35c192d7324fed7bcd8939",
+  "runtime_changes": [
+    "ggml/include/ggml.h",
+    "ggml/src/ggml-common.h",
+    "ggml/src/ggml-cpu/ggml-cpu.c",
+    "ggml/src/ggml-cpu/ggml-cpu.cpp",
+    "ggml/src/ggml-cpu/ops.cpp",
+    "ggml/src/ggml-cpu/quants.c",
+    "ggml/src/ggml-cpu/quants.h",
+    "ggml/src/ggml-cuda/common.cuh",
+    "ggml/src/ggml-cuda/convert.cu",
+    "ggml/src/ggml-cuda/dequantize.cuh",
+    "ggml/src/ggml-cuda/dht.cu",
+    "ggml/src/ggml-cuda/dht.cuh",
+    "ggml/src/ggml-cuda/getrows.cu",
+    "ggml/src/ggml-cuda/ggml-cuda.cu",
+    "ggml/src/ggml-cuda/mmvq.cu",
+    "ggml/src/ggml-cuda/vecdotq.cuh",
+    "ggml/src/ggml-quants.c",
+    "ggml/src/ggml-quants.h",
+    "ggml/src/ggml.c",
+    "gguf-py/gguf/constants.py",
+    "gguf-py/gguf/quants.py",
+    "include/llama.h",
+    "src/llama-arch.cpp",
+    "src/llama-arch.h",
+    "src/llama-context.cpp",
+    "src/llama-graph.cpp",
+    "src/llama-graph.h",
+    "src/llama-impl.h",
+    "src/llama-model-loader.cpp",
+    "src/llama-model-loader.h",
+    "src/llama-model.cpp",
+    "src/llama-model.h",
+    "src/llama-quant.cpp",
+    "tests/CMakeLists.txt",
+    "tests/test-backend-ops.cpp",
+    "tests/test-prism-smooth-dht.cpp",
+    "tests/test-prism-tq1-0-128.cpp",
+    "tools/quantize/quantize.cpp"
+  ],
+  "source_patch_sha256": "d600198deccae68a9a215c4f3935be7d0fa05e8b87c759ee12254ac944e21e37",
+  "upstream_license_preserved": true,
+  "publication_only_changes": [
+    "README.md replaced; original preserved as README-upstream.md",
+    "Added UPSTREAM.md, docs/SDHT.md, SOURCE_PROVENANCE.json, sdht-runtime.patch",
+    "Appended credential/checkpoint patterns to .gitignore",
+    "Upstream Actions workflow files renamed to .disabled"
+  ],
+  "disabled_workflows": [
+    {
+      "original": ".github/workflows/ai-issues.yml",
+      "exported": ".github/workflows/ai-issues.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-3rd-party.yml",
+      "exported": ".github/workflows/build-3rd-party.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-and-test-snapdragon.yml",
+      "exported": ".github/workflows/build-and-test-snapdragon.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-android.yml",
+      "exported": ".github/workflows/build-android.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-apple.yml",
+      "exported": ".github/workflows/build-apple.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cache.yml",
+      "exported": ".github/workflows/build-cache.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cann.yml",
+      "exported": ".github/workflows/build-cann.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cmake-pkg.yml",
+      "exported": ".github/workflows/build-cmake-pkg.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cpu.yml",
+      "exported": ".github/workflows/build-cpu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cross.yml",
+      "exported": ".github/workflows/build-cross.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cuda-ubuntu.yml",
+      "exported": ".github/workflows/build-cuda-ubuntu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-cuda-windows.yml",
+      "exported": ".github/workflows/build-cuda-windows.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-ibm.yml",
+      "exported": ".github/workflows/build-ibm.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-msys.yml",
+      "exported": ".github/workflows/build-msys.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-opencl.yml",
+      "exported": ".github/workflows/build-opencl.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-openvino.yml",
+      "exported": ".github/workflows/build-openvino.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-riscv.yml",
+      "exported": ".github/workflows/build-riscv.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-sanitize.yml",
+      "exported": ".github/workflows/build-sanitize.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-sycl.yml",
+      "exported": ".github/workflows/build-sycl.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-virtgpu.yml",
+      "exported": ".github/workflows/build-virtgpu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-vulkan.yml",
+      "exported": ".github/workflows/build-vulkan.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-wasm.yml",
+      "exported": ".github/workflows/build-wasm.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/build-webgpu.yml",
+      "exported": ".github/workflows/build-webgpu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/check-vendor.yml",
+      "exported": ".github/workflows/check-vendor.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-cpu.yml",
+      "exported": ".github/workflows/ci-self-hosted-cpu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-cuda.yml",
+      "exported": ".github/workflows/ci-self-hosted-cuda.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-kleidiai.yml",
+      "exported": ".github/workflows/ci-self-hosted-kleidiai.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-metal.yml",
+      "exported": ".github/workflows/ci-self-hosted-metal.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-openvino.yml",
+      "exported": ".github/workflows/ci-self-hosted-openvino.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-vulkan.yml",
+      "exported": ".github/workflows/ci-self-hosted-vulkan.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ci-self-hosted-webgpu.yml",
+      "exported": ".github/workflows/ci-self-hosted-webgpu.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/close-issue.yml",
+      "exported": ".github/workflows/close-issue.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/code-style.yml",
+      "exported": ".github/workflows/code-style.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/copilot-setup-steps.yml",
+      "exported": ".github/workflows/copilot-setup-steps.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/docker.yml",
+      "exported": ".github/workflows/docker.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/editorconfig.yml",
+      "exported": ".github/workflows/editorconfig.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/gguf-publish.yml",
+      "exported": ".github/workflows/gguf-publish.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/hip-quality-check.yml",
+      "exported": ".github/workflows/hip-quality-check.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/labeler.yml",
+      "exported": ".github/workflows/labeler.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/make-release.yml",
+      "exported": ".github/workflows/make-release.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/models-check.yml",
+      "exported": ".github/workflows/models-check.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/pr-draft-label.yml",
+      "exported": ".github/workflows/pr-draft-label.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/pre-tokenizer-hashes.yml",
+      "exported": ".github/workflows/pre-tokenizer-hashes.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/python-check-requirements.yml",
+      "exported": ".github/workflows/python-check-requirements.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/python-lint.yml",
+      "exported": ".github/workflows/python-lint.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/python-type-check.yml",
+      "exported": ".github/workflows/python-type-check.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/release-publish.yml",
+      "exported": ".github/workflows/release-publish.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/release.yml",
+      "exported": ".github/workflows/release.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/server-sanitize.yml",
+      "exported": ".github/workflows/server-sanitize.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/server-self-hosted.yml",
+      "exported": ".github/workflows/server-self-hosted.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/server.yml",
+      "exported": ".github/workflows/server.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ui-build-self-hosted.yml",
+      "exported": ".github/workflows/ui-build-self-hosted.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ui-build.yml",
+      "exported": ".github/workflows/ui-build.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ui-publish.yml",
+      "exported": ".github/workflows/ui-publish.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ui-self-hosted.yml",
+      "exported": ".github/workflows/ui-self-hosted.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/ui.yml",
+      "exported": ".github/workflows/ui.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/update-ops-docs.yml",
+      "exported": ".github/workflows/update-ops-docs.yml.disabled"
+    },
+    {
+      "original": ".github/workflows/winget.yml",
+      "exported": ".github/workflows/winget.yml.disabled"
+    }
+  ],
+  "upstream_tokenizer_fixtures_retained": true,
+  "local_git_history_included": false,
+  "compiled_runtime_included": false,
+  "model_checkpoint_included": false
+}
