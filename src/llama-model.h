@@ -971,10 +971,10 @@ struct llama_model_base : public llama_model {
     };
     nextn_flags_t nextn_flags(llama_model_loader & ml, llm_tensor trunk_probe = LLM_TENSOR_ATTN_NORM) const;
 
-    // helper: read the prism.hadamard metadata and record which weights are folded
+    // helper: read the quantization.rotation metadata and record which weights are folded
     void load_hparams_hadamard(llama_model_loader & ml);
 
-    // helper: make the prism.hadamard rotation and sign tensors for the folded weights
+    // helper: make the quantization.rotation rotation and sign tensors for the folded weights
     void load_tensors_hadamard(llama_model_loader & ml);
 
     // helper: read the SWA pattern as one flag per layer, or as a period expanded by set_swa_pattern

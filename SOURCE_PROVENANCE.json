@@ -4,6 +4,7 @@
   "upstream_base_commit": "6afa9a3134dc4833ab58e625464aa67e5fc7eea5",
   "runtime_source_commit": "3a75675bffeeaa3c8a35c192d7324fed7bcd8939",
   "runtime_changes": [
+    "conversion/base.py",
     "ggml/include/ggml.h",
     "ggml/src/ggml-common.h",
     "ggml/src/ggml-cpu/ggml-cpu.c",
@@ -23,12 +24,19 @@
     "ggml/src/ggml-quants.c",
     "ggml/src/ggml-quants.h",
     "ggml/src/ggml.c",
+    "gguf-py/gguf/__init__.py",
     "gguf-py/gguf/constants.py",
+    "gguf-py/gguf/gguf_writer.py",
     "gguf-py/gguf/quants.py",
+    "gguf-py/gguf/rotation.py",
+    "gguf-py/gguf/scripts/gguf_migrate_rotation.py",
+    "gguf-py/tests/test_rotation_metadata.py",
     "include/llama.h",
+    "src/llama-adapter.cpp",
     "src/llama-arch.cpp",
     "src/llama-arch.h",
     "src/llama-context.cpp",
+    "src/llama-context.h",
     "src/llama-graph.cpp",
     "src/llama-graph.h",
     "src/llama-impl.h",
@@ -39,11 +47,11 @@
     "src/llama-quant.cpp",
     "tests/CMakeLists.txt",
     "tests/test-backend-ops.cpp",
-    "tests/test-prism-smooth-dht.cpp",
-    "tests/test-prism-tq1-0-128.cpp",
+    "tests/test-sdht.cpp",
+    "tests/test-tq1-0-128.cpp",
     "tools/quantize/quantize.cpp"
   ],
-  "source_patch_sha256": "d600198deccae68a9a215c4f3935be7d0fa05e8b87c759ee12254ac944e21e37",
+  "source_patch_sha256": "9b407d00926b4378a5147c7abbf58913549373c34b93dcb541b36c40d4885e29",
   "upstream_license_preserved": true,
   "publication_only_changes": [
     "README.md replaced; original preserved as README-upstream.md",
@@ -288,5 +296,12 @@
   "upstream_tokenizer_fixtures_retained": true,
   "local_git_history_included": false,
   "compiled_runtime_included": false,
-  "model_checkpoint_included": false
+  "model_checkpoint_included": false,
+  "runtime_source_commit_role": "Initial source import; maintained changes are listed below and in repository history.",
+  "maintained_changes": [
+    "Use quantization.rotation.* metadata with read compatibility for the complete legacy namespace",
+    "Rename writer APIs, diagnostics, and custom tests to neutral rotation/SDHT names",
+    "Reject mixed namespaces and rotation metadata without a version",
+    "Provide a metadata-only migration tool and regression tests"
+  ]
 }

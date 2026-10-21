@@ -514,18 +514,19 @@ class Keys:
         BETA                = "xielu.beta"
         EPS                 = "xielu.eps"
 
-    class PrismHadamard:
-        VERSION              = "prism.hadamard.version"
-        TIED_OUTPUT          = "prism.hadamard.tied_output"
-        BLOCK_SIZE           = "prism.hadamard.block_size"
-        TRANSFORM            = "prism.hadamard.transform"
-        AXIS                 = "prism.hadamard.axis"
-        SIGN_MODE            = "prism.hadamard.sign_mode"
-        SIGN_WIDTHS          = "prism.hadamard.sign_widths"
-        SIGN_VALUES          = "prism.hadamard.sign_values"
-        WEIGHT_NAMES         = "prism.hadamard.weight_names"
-        INVERSE_WEIGHT_NAMES = "prism.hadamard.inverse_weight_names"
-        GDN_V_GROUPED        = "prism.hadamard.gdn_v_grouped"
+    class Rotation:
+        VERSION              = "quantization.rotation.version"
+        TIED_OUTPUT          = "quantization.rotation.tied_output"
+        BLOCK_SIZE           = "quantization.rotation.block_size"
+        TRANSFORM            = "quantization.rotation.transform"
+        AXIS                 = "quantization.rotation.axis"
+        SIGN_MODE            = "quantization.rotation.sign_mode"
+        SIGN_WIDTHS          = "quantization.rotation.sign_widths"
+        SIGN_VALUES          = "quantization.rotation.sign_values"
+        WEIGHT_NAMES         = "quantization.rotation.weight_names"
+        INVERSE_WEIGHT_NAMES = "quantization.rotation.inverse_weight_names"
+        DIAGONAL_WEIGHT_NAMES = "quantization.rotation.diagonal_weight_names"
+        GDN_V_GROUPED        = "quantization.rotation.gdn_v_grouped"
 
 
 #

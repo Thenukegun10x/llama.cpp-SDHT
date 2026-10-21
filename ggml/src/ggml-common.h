@@ -283,7 +283,7 @@ typedef struct {
 } block_tq1_0;
 static_assert(sizeof(block_tq1_0) == sizeof(ggml_half) + QK_K / 64 + (QK_K - 4 * QK_K / 64) / 5, "wrong tq1_0 block size/padding");
 
-// 1.75 bpw (Prism PTQ1_0: the ternary codec with a 128-block)
+// 1.75 bpw ternary codec with 128-weight blocks
 #define QK_TQ1_0_128 128
 typedef struct {
     uint8_t qs[(QK_TQ1_0_128 - 4 * QK_TQ1_0_128 / 64) / 5]; // 5 elements per byte (3^5 = 243 < 256)

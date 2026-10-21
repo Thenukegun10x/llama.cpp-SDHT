@@ -83,7 +83,7 @@ static void fold_in_place(std::vector<float> & a, int64_t ne0, int64_t ne1, cons
     a = out;
 }
 
-static bool write_model(const std::string & path, bool folded) {
+static bool write_model(const std::string & path, bool folded, bool legacy = false, bool mixed = false, bool missing_version = false) {
     const std::vector<tensor_spec> specs = model_tensors();
 
     ggml_init_params gparams = {
@@ -100,7 +100,7 @@ static bool write_model(const std::string & path, bool folded) {
     gguf_context * gugf = gguf_init_empty();
 
     gguf_set_val_str (gugf, "general.architecture", "llama");
-    gguf_set_val_str (gugf, "general.name",         "tiny-prism-smooth-dht");
+    gguf_set_val_str (gugf, "general.name",         "tiny-sdht");
 
     gguf_set_val_u32 (gugf, "llama.context_length",                     64);
     gguf_set_val_u32 (gugf, "llama.embedding_length",                   N_EMBD);
@@ -188,13 +188,19 @@ static bool write_model(const std::string & path, bool folded) {
             folded_ptrs.push_back(name.c_str());
         }
 
-        gguf_set_val_u32 (gugf, "prism.hadamard.version",    1);
-        gguf_set_val_u32 (gugf, "prism.hadamard.block_size", DHT_BLOCK);
-        gguf_set_val_str (gugf, "prism.hadamard.transform",  "normalized-smooth-discrete-hartley");
-        gguf_set_val_str (gugf, "prism.hadamard.axis",       "input-last-dimension");
-        gguf_set_val_str (gugf, "prism.hadamard.sign_mode",  "identity");
-        gguf_set_arr_str (gugf, "prism.hadamard.weight_names",           folded_ptrs.data(), folded_ptrs.size());
-        gguf_set_arr_str (gugf, "prism.hadamard.diagonal_weight_names",  folded_ptrs.data(), folded_ptrs.size());
+        const std::string prefix = legacy ? "prism.hadamard." : "quantization.rotation.";
+        if (!missing_version) {
+            gguf_set_val_u32(gugf, (prefix + "version").c_str(), 1);
+        }
+        gguf_set_val_u32(gugf, (prefix + "block_size").c_str(), DHT_BLOCK);
+        gguf_set_val_str(gugf, (prefix + "transform").c_str(), "normalized-smooth-discrete-hartley");
+        gguf_set_val_str(gugf, (prefix + "axis").c_str(), "input-last-dimension");
+        gguf_set_val_str(gugf, (prefix + "sign_mode").c_str(), "identity");
+        gguf_set_arr_str(gugf, (prefix + "weight_names").c_str(), folded_ptrs.data(), folded_ptrs.size());
+        gguf_set_arr_str(gugf, (prefix + "diagonal_weight_names").c_str(), folded_ptrs.data(), folded_ptrs.size());
+        if (mixed) {
+            gguf_set_val_u32(gugf, "prism.hadamard.version", 1);
+        }
     }
 
     const bool ok = gguf_write_to_file(gugf, path.c_str(), false);
@@ -273,7 +279,7 @@ static bool run_model(const std::string & path, int n_gpu_layers, std::vector<fl
     return true;
 }
 
-static bool compare(const std::string & a, const std::string & b, int n_gpu_layers) {
+static bool compare(const std::string & a, const std::string & b, int n_gpu_layers, bool exact = false) {
     std::vector<float> la;
     std::vector<float> lb;
 
@@ -303,7 +309,7 @@ static bool compare(const std::string & a, const std::string & b, int n_gpu_laye
     printf("n_gpu_layers = %2d: max |logit| = %8.3f, max diff = %10.3e, relative = %10.3e, nmse = %10.3e\n",
             n_gpu_layers, max_ref, max_diff, rel, nmse);
 
-    if (rel > 1e-3 || nmse > 1e-6) {
+    if ((exact && la != lb) || rel > 1e-3 || nmse > 1e-6) {
         printf("FAIL: the folded model does not reproduce the plain model\n");
         return false;
     }
@@ -316,8 +322,8 @@ int main(int argc, char ** argv) {
 
     const std::string dir = argc > 1 ? argv[1] : ".";
 
-    const std::string plain_path  = dir + "/prism-smooth-dht-plain.gguf";
-    const std::string folded_path = dir + "/prism-smooth-dht-folded.gguf";
+    const std::string plain_path  = dir + "/sdht-plain.gguf";
+    const std::string folded_path = dir + "/sdht-folded.gguf";
 
     llama_backend_init();
     if (getenv("SDHT_LOG") == nullptr) {
@@ -341,6 +347,25 @@ int main(int argc, char ** argv) {
     bool ok = true;
     ok = compare(plain_path, folded_path,  0) && ok; // CPU: the rotation is a plain matmul
     ok = compare(plain_path, folded_path, 99) && ok; // GPU: the rotation goes through the DHT op
+
+    const std::string legacy_path = dir + "/sdht-legacy.gguf";
+    const std::string mixed_path = dir + "/sdht-mixed.gguf";
+    const std::string incomplete_path = dir + "/sdht-incomplete.gguf";
+    ok = write_model(legacy_path, true, true) && ok;
+    ok = compare(folded_path, legacy_path, 0, true) && ok;
+    ok = compare(folded_path, legacy_path, 99, true) && ok;
+    for (bool incomplete : { false, true }) {
+        const std::string & path = incomplete ? incomplete_path : mixed_path;
+        ok = write_model(path, true, false, !incomplete, incomplete) && ok;
+        llama_model_params params = llama_model_default_params();
+        params.n_gpu_layers = 0;
+        llama_model * model = llama_model_load_from_file(path.c_str(), params);
+        if (model != nullptr) {
+            printf("FAIL: invalid rotation metadata was accepted: %s\n", path.c_str());
+            llama_model_free(model);
+            ok = false;
+        }
+    }
 
     printf("%s\n", ok ? "OK" : "FAIL");
 

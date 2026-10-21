@@ -1,5 +1,44 @@
+diff --git a/conversion/base.py b/conversion/base.py
+index e3d265157addc7c73a1d8a1b4d4964b1e5507a19..b6a21e87be72cd69abcd4a06eb699532cff50361 100644
+--- a/conversion/base.py
++++ b/conversion/base.py
+@@ -817,23 +817,23 @@ class ModelBase:
+                 for name in self.model_tensors
+             ):
+                 raise ValueError("Tied Hadamard output must not carry a separate output head")
+-            self.gguf_writer.add_prism_hadamard_tied_output(True)
++            self.gguf_writer.add_rotation_tied_output(True)
+         elif "token_embd.weight" in inverse_weight_names and self.hparams.get("tie_word_embeddings", False):
+             raise ValueError("A tied latent embedding requires Hadamard schema 3 and tied_output=true")
+ 
+-        self.gguf_writer.add_prism_hadamard_version(2 if tied_output else 1)
+-        self.gguf_writer.add_prism_hadamard_block_size(block_size)
+-        self.gguf_writer.add_prism_hadamard_transform("normalized-sylvester-walsh-hadamard")
+-        self.gguf_writer.add_prism_hadamard_axis("input-last-dimension")
+-        self.gguf_writer.add_prism_hadamard_sign_mode(sign_mode)
+-        self.gguf_writer.add_prism_hadamard_weight_names(weight_names)
++        self.gguf_writer.add_rotation_version(2 if tied_output else 1)
++        self.gguf_writer.add_rotation_block_size(block_size)
++        self.gguf_writer.add_rotation_transform("normalized-sylvester-walsh-hadamard")
++        self.gguf_writer.add_rotation_axis("input-last-dimension")
++        self.gguf_writer.add_rotation_sign_mode(sign_mode)
++        self.gguf_writer.add_rotation_weight_names(weight_names)
+         if sign_mode == "explicit":
+-            self.gguf_writer.add_prism_hadamard_sign_widths(sign_widths)
+-            self.gguf_writer.add_prism_hadamard_sign_values(sign_values)
++            self.gguf_writer.add_rotation_sign_widths(sign_widths)
++            self.gguf_writer.add_rotation_sign_values(sign_values)
+         if inverse_weight_names:
+-            self.gguf_writer.add_prism_hadamard_inverse_weight_names(inverse_weight_names)
++            self.gguf_writer.add_rotation_inverse_weight_names(inverse_weight_names)
+         if getattr(self, "_hadamard_gdn_v_grouped", False):
+-            self.gguf_writer.add_prism_hadamard_gdn_v_grouped(True)
++            self.gguf_writer.add_rotation_gdn_v_grouped(True)
+             logger.info("GGUF Hadamard: linear-attention out_proj kept in grouped V order")
+         logger.info("GGUF Hadamard contract: H%d, sign_mode=%s, %d folded weight(s), %d inverse-lookup",
+                     block_size, sign_mode, len(weight_names), len(inverse_weight_names))
 diff --git a/ggml/include/ggml.h b/ggml/include/ggml.h
-index c37ba947140e1b84c67440632691323b05e96329..911bce9522cd7272cf3385f0add2f91aee9e96b9 100644
+index c37ba947140e1b84c67440632691323b05e96329..099ef121b2846e8c2126237284ae94e9012e5a99 100644
 --- a/ggml/include/ggml.h
 +++ b/ggml/include/ggml.h
 @@ -430,7 +430,8 @@ extern "C" {
@@ -7,7 +46,7 @@ index c37ba947140e1b84c67440632691323b05e96329..911bce9522cd7272cf3385f0add2f91a
          GGML_TYPE_Q1_0    = 41,
          GGML_TYPE_Q2_0    = 42,
 -        GGML_TYPE_COUNT   = 43,
-+        GGML_TYPE_TQ1_0_128 = 43, // Prism PTQ1_0: ternary with a 128-block
++        GGML_TYPE_TQ1_0_128 = 43, // ternary quantization with 128-weight blocks
 +        GGML_TYPE_COUNT   = 44,
      };
  
@@ -21,7 +60,7 @@ index c37ba947140e1b84c67440632691323b05e96329..911bce9522cd7272cf3385f0add2f91a
  
      // model file types
 diff --git a/ggml/src/ggml-common.h b/ggml/src/ggml-common.h
-index 1dbbe326d0fc6a5ce8a86d237cb94901340443af..595301422e2a31c1875ba10f4244ef96edf26ed2 100644
+index 1dbbe326d0fc6a5ce8a86d237cb94901340443af..ff54b8a5669e5aaf8e68e386bb733d1b5aaa6acb 100644
 --- a/ggml/src/ggml-common.h
 +++ b/ggml/src/ggml-common.h
 @@ -96,6 +96,9 @@ typedef sycl::half2 ggml_half2;
@@ -38,7 +77,7 @@ index 1dbbe326d0fc6a5ce8a86d237cb94901340443af..595301422e2a31c1875ba10f4244ef96
  } block_tq1_0;
  static_assert(sizeof(block_tq1_0) == sizeof(ggml_half) + QK_K / 64 + (QK_K - 4 * QK_K / 64) / 5, "wrong tq1_0 block size/padding");
  
-+// 1.75 bpw (Prism PTQ1_0: the ternary codec with a 128-block)
++// 1.75 bpw ternary codec with 128-weight blocks
 +#define QK_TQ1_0_128 128
 +typedef struct {
 +    uint8_t qs[(QK_TQ1_0_128 - 4 * QK_TQ1_0_128 / 64) / 5]; // 5 elements per byte (3^5 = 243 < 256)
@@ -1063,11 +1102,52 @@ index 01dc8d05c3168ea9075f12687d95bee02a25e9c9..8dec7979e37505bd9309cc7669a00d81
          case GGML_TYPE_TQ2_0:   result = quantize_tq2_0  (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
          case GGML_TYPE_IQ2_XXS: result = quantize_iq2_xxs(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
          case GGML_TYPE_IQ2_XS:  result = quantize_iq2_xs (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+diff --git a/gguf-py/gguf/__init__.py b/gguf-py/gguf/__init__.py
+index 243defc4c1ca42d3713017d8902592f54ac849cd..6e187b49b763b94a0ec63ea9d1bc7a60bcde0ad9 100644
+--- a/gguf-py/gguf/__init__.py
++++ b/gguf-py/gguf/__init__.py
+@@ -7,3 +7,4 @@ from .tensor_mapping import *
+ from .vocab import *
+ from .utility import *
+ from .metadata import *
++from .rotation import *
 diff --git a/gguf-py/gguf/constants.py b/gguf-py/gguf/constants.py
-index 92a69bd57369f817cb41a26135f1bac6b48fb910..bfdc2f32aa847de9398b33acc26dff14fbbd9961 100644
+index 92a69bd57369f817cb41a26135f1bac6b48fb910..b6caf8c2333964891e826eb3e021b6ec012539d8 100644
 --- a/gguf-py/gguf/constants.py
 +++ b/gguf-py/gguf/constants.py
-@@ -6169,6 +6169,7 @@ class GGMLQuantizationType(IntEnum):
+@@ -514,18 +514,19 @@ class Keys:
+         BETA                = "xielu.beta"
+         EPS                 = "xielu.eps"
+ 
+-    class PrismHadamard:
+-        VERSION              = "prism.hadamard.version"
+-        TIED_OUTPUT          = "prism.hadamard.tied_output"
+-        BLOCK_SIZE           = "prism.hadamard.block_size"
+-        TRANSFORM            = "prism.hadamard.transform"
+-        AXIS                 = "prism.hadamard.axis"
+-        SIGN_MODE            = "prism.hadamard.sign_mode"
+-        SIGN_WIDTHS          = "prism.hadamard.sign_widths"
+-        SIGN_VALUES          = "prism.hadamard.sign_values"
+-        WEIGHT_NAMES         = "prism.hadamard.weight_names"
+-        INVERSE_WEIGHT_NAMES = "prism.hadamard.inverse_weight_names"
+-        GDN_V_GROUPED        = "prism.hadamard.gdn_v_grouped"
++    class Rotation:
++        VERSION              = "quantization.rotation.version"
++        TIED_OUTPUT          = "quantization.rotation.tied_output"
++        BLOCK_SIZE           = "quantization.rotation.block_size"
++        TRANSFORM            = "quantization.rotation.transform"
++        AXIS                 = "quantization.rotation.axis"
++        SIGN_MODE            = "quantization.rotation.sign_mode"
++        SIGN_WIDTHS          = "quantization.rotation.sign_widths"
++        SIGN_VALUES          = "quantization.rotation.sign_values"
++        WEIGHT_NAMES         = "quantization.rotation.weight_names"
++        INVERSE_WEIGHT_NAMES = "quantization.rotation.inverse_weight_names"
++        DIAGONAL_WEIGHT_NAMES = "quantization.rotation.diagonal_weight_names"
++        GDN_V_GROUPED        = "quantization.rotation.gdn_v_grouped"
+ 
+ 
+ #
+@@ -6169,6 +6170,7 @@ class GGMLQuantizationType(IntEnum):
      NVFP4   = 40
      Q1_0    = 41
      Q2_0    = 42
@@ -1075,7 +1155,7 @@ index 92a69bd57369f817cb41a26135f1bac6b48fb910..bfdc2f32aa847de9398b33acc26dff14
  
  
  class ExpertGatingFuncType(IntEnum):
-@@ -6225,6 +6226,7 @@ class LlamaFileType(IntEnum):
+@@ -6225,6 +6227,7 @@ class LlamaFileType(IntEnum):
      MOSTLY_NVFP4         = 39  # except 1d tensors
      MOSTLY_Q1_0          = 40  # except 1d tensors
      MOSTLY_Q2_0          = 41  # except 1d tensors
@@ -1083,7 +1163,7 @@ index 92a69bd57369f817cb41a26135f1bac6b48fb910..bfdc2f32aa847de9398b33acc26dff14
  
      GUESSED              = 1024  # not specified in the model file
  
-@@ -6385,6 +6387,7 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
+@@ -6385,6 +6388,7 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
      GGMLQuantizationType.NVFP4:   (64, 4 + 32),
      GGMLQuantizationType.Q1_0:    (128, 2 + 16),
      GGMLQuantizationType.Q2_0:    (64, 2 + 16),
@@ -1091,6 +1171,74 @@ index 92a69bd57369f817cb41a26135f1bac6b48fb910..bfdc2f32aa847de9398b33acc26dff14
  }
  
  
+diff --git a/gguf-py/gguf/gguf_writer.py b/gguf-py/gguf/gguf_writer.py
+index 93ec95eb648e73fd6e150432e68db5e01ed0d276..e7620f110084c7b6748c2ebe6cd64cf3f145252d 100644
+--- a/gguf-py/gguf/gguf_writer.py
++++ b/gguf-py/gguf/gguf_writer.py
+@@ -1686,38 +1686,41 @@ class GGUFWriter:
+     def add_xielu_eps(self, values: Sequence[float]):
+         self.add_array(Keys.xIELU.EPS, values)
+ 
+-    def add_prism_hadamard_version(self, value: int) -> None:
+-        self.add_uint32(Keys.PrismHadamard.VERSION, value)
++    def add_rotation_version(self, value: int) -> None:
++        self.add_uint32(Keys.Rotation.VERSION, value)
+ 
+-    def add_prism_hadamard_tied_output(self, value: bool) -> None:
+-        self.add_bool(Keys.PrismHadamard.TIED_OUTPUT, value)
++    def add_rotation_tied_output(self, value: bool) -> None:
++        self.add_bool(Keys.Rotation.TIED_OUTPUT, value)
+ 
+-    def add_prism_hadamard_block_size(self, value: int) -> None:
+-        self.add_uint32(Keys.PrismHadamard.BLOCK_SIZE, value)
++    def add_rotation_block_size(self, value: int) -> None:
++        self.add_uint32(Keys.Rotation.BLOCK_SIZE, value)
+ 
+-    def add_prism_hadamard_transform(self, value: str) -> None:
+-        self.add_string(Keys.PrismHadamard.TRANSFORM, value)
++    def add_rotation_transform(self, value: str) -> None:
++        self.add_string(Keys.Rotation.TRANSFORM, value)
+ 
+-    def add_prism_hadamard_axis(self, value: str) -> None:
+-        self.add_string(Keys.PrismHadamard.AXIS, value)
++    def add_rotation_axis(self, value: str) -> None:
++        self.add_string(Keys.Rotation.AXIS, value)
+ 
+-    def add_prism_hadamard_sign_mode(self, value: str) -> None:
+-        self.add_string(Keys.PrismHadamard.SIGN_MODE, value)
++    def add_rotation_sign_mode(self, value: str) -> None:
++        self.add_string(Keys.Rotation.SIGN_MODE, value)
+ 
+-    def add_prism_hadamard_sign_widths(self, values: Sequence[int]) -> None:
+-        self.add_array(Keys.PrismHadamard.SIGN_WIDTHS, values)
++    def add_rotation_sign_widths(self, values: Sequence[int]) -> None:
++        self.add_array(Keys.Rotation.SIGN_WIDTHS, values)
+ 
+-    def add_prism_hadamard_sign_values(self, values: Sequence[int]) -> None:
+-        self.add_array(Keys.PrismHadamard.SIGN_VALUES, values)
++    def add_rotation_sign_values(self, values: Sequence[int]) -> None:
++        self.add_array(Keys.Rotation.SIGN_VALUES, values)
+ 
+-    def add_prism_hadamard_weight_names(self, names: Sequence[str]) -> None:
+-        self.add_array(Keys.PrismHadamard.WEIGHT_NAMES, names)
++    def add_rotation_weight_names(self, names: Sequence[str]) -> None:
++        self.add_array(Keys.Rotation.WEIGHT_NAMES, names)
+ 
+-    def add_prism_hadamard_inverse_weight_names(self, names: Sequence[str]) -> None:
+-        self.add_array(Keys.PrismHadamard.INVERSE_WEIGHT_NAMES, names)
++    def add_rotation_inverse_weight_names(self, names: Sequence[str]) -> None:
++        self.add_array(Keys.Rotation.INVERSE_WEIGHT_NAMES, names)
+ 
+-    def add_prism_hadamard_gdn_v_grouped(self, value: bool) -> None:
+-        self.add_bool(Keys.PrismHadamard.GDN_V_GROUPED, value)
++    def add_rotation_diagonal_weight_names(self, names: Sequence[str]) -> None:
++        self.add_array(Keys.Rotation.DIAGONAL_WEIGHT_NAMES, names)
++
++    def add_rotation_gdn_v_grouped(self, value: bool) -> None:
++        self.add_bool(Keys.Rotation.GDN_V_GROUPED, value)
+ 
+     def add_attention_value_expert_count(self, count: int):
+         self.add_uint32(Keys.Attention.VALUE_EXPERT_COUNT.format(arch=self.arch), count)
 diff --git a/gguf-py/gguf/quants.py b/gguf-py/gguf/quants.py
 index 80966b6ef1518a45b86745d94eb70d05c3c5490f..8062c4185324fa96c46f734c36d855b0375ca59e 100644
 --- a/gguf-py/gguf/quants.py
@@ -1155,6 +1303,200 @@ index 80966b6ef1518a45b86745d94eb70d05c3c5490f..8062c4185324fa96c46f734c36d855b0
  class TQ2_0(__Quant, qtype=GGMLQuantizationType.TQ2_0):
      @classmethod
      def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+diff --git a/gguf-py/gguf/rotation.py b/gguf-py/gguf/rotation.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f989f996266a39ba7570bb36049e9b38e896b6d7
+--- /dev/null
++++ b/gguf-py/gguf/rotation.py
+@@ -0,0 +1,30 @@
++"""Canonical input-rotation metadata and legacy GGUF compatibility."""
++from collections.abc import Mapping
++from typing import Any
++
++ROTATION_PREFIX = "quantization.rotation."
++LEGACY_ROTATION_PREFIX = "prism.hadamard."
++ROTATION_PREFIXES = (ROTATION_PREFIX, LEGACY_ROTATION_PREFIX)
++
++
++def rotation_key(key: str) -> str:
++    """Translate an old metadata key without changing its value or type."""
++    if key.startswith(LEGACY_ROTATION_PREFIX):
++        return ROTATION_PREFIX + key[len(LEGACY_ROTATION_PREFIX):]
++    return key
++
++
++def rotation_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
++    """Read one complete namespace; mixed contracts are ambiguous."""
++    present = [prefix for prefix in ROTATION_PREFIXES
++               if any(key.startswith(prefix) for key in metadata)]
++    if len(present) > 1:
++        raise ValueError("mixed canonical and legacy rotation metadata")
++    if not present:
++        return {}
++    prefix = present[0]
++    result = {rotation_key(key): value for key, value in metadata.items()
++              if key.startswith(prefix)}
++    if ROTATION_PREFIX + "version" not in result:
++        raise ValueError("rotation metadata requires a version")
++    return result
+diff --git a/gguf-py/gguf/scripts/gguf_migrate_rotation.py b/gguf-py/gguf/scripts/gguf_migrate_rotation.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..484530f189d9862a986d0d3a6d3c064af078ebe8
+--- /dev/null
++++ b/gguf-py/gguf/scripts/gguf_migrate_rotation.py
+@@ -0,0 +1,70 @@
++"""Rename legacy input-rotation keys while copying all model payload bytes."""
++from __future__ import annotations
++
++import argparse
++import hashlib
++from pathlib import Path
++
++from gguf import GGUFEndian, GGUFReader
++from gguf.rotation import LEGACY_ROTATION_PREFIX, rotation_key, rotation_metadata
++
++
++def migrate(source: Path, output: Path) -> dict[str, object]:
++    source, output = Path(source).resolve(), Path(output).resolve()
++    if source == output or output.exists():
++        raise ValueError("output must be a new file, different from the input")
++    reader = GGUFReader(source)
++    created = False
++    try:
++        rotation_metadata(reader.fields)
++        fields = [field for name, field in reader.fields.items() if not name.startswith("GGUF.")]
++        renamed = [field.name for field in fields if field.name.startswith(LEGACY_ROTATION_PREFIX)]
++        if not renamed:
++            raise ValueError("input has no legacy rotation keys to rename")
++        sizes = {field.name: sum(part.nbytes for part in field.parts) for field in fields}
++        metadata_end = max((field.offset + sizes[field.name] for field in fields), default=24)
++        info_end = max((tensor.field.offset + sum(part.nbytes for part in tensor.field.parts)
++                        for tensor in reader.tensors), default=metadata_end)
++        endian = "little" if reader.endianess == GGUFEndian.LITTLE else "big"
++        digest = hashlib.sha256()
++        payload_bytes = 0
++        with source.open("rb") as src, output.open("xb") as dst:
++            created = True
++            dst.write(src.read(24))
++            for field in fields:
++                key = rotation_key(field.name).encode("utf-8")
++                old_key_bytes = field.parts[1].nbytes
++                src.seek(field.offset + 8 + old_key_bytes)
++                value = src.read(sizes[field.name] - 8 - old_key_bytes)
++                dst.write(len(key).to_bytes(8, endian))
++                dst.write(key)
++                dst.write(value)
++            src.seek(metadata_end)
++            dst.write(src.read(info_end - metadata_end))
++            dst.write(b"\0" * (-dst.tell() % reader.alignment))
++            src.seek(reader.data_offset)
++            while chunk := src.read(8 * 1024 * 1024):
++                dst.write(chunk)
++                digest.update(chunk)
++                payload_bytes += len(chunk)
++        return {"renamed_keys": len(renamed), "payload_bytes": payload_bytes,
++                "payload_sha256": digest.hexdigest(), "output": str(output)}
++    except BaseException:
++        if created:
++            output.unlink(missing_ok=True)
++        raise
++    finally:
++        reader.data._mmap.close()
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("input", type=Path)
++    parser.add_argument("output", type=Path)
++    args = parser.parse_args()
++    import json
++    print(json.dumps(migrate(args.input, args.output), indent=2))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/gguf-py/tests/test_rotation_metadata.py b/gguf-py/tests/test_rotation_metadata.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..81437987ff9e8e2c050bb8236d6e2d9c556f21e2
+--- /dev/null
++++ b/gguf-py/tests/test_rotation_metadata.py
+@@ -0,0 +1,76 @@
++import hashlib
++from pathlib import Path
++import tempfile
++import unittest
++
++import numpy as np
++
++from gguf import GGUFReader, GGUFWriter, Keys
++from gguf.rotation import ROTATION_PREFIX, LEGACY_ROTATION_PREFIX, rotation_metadata
++from gguf.scripts.gguf_migrate_rotation import migrate
++
++
++class RotationMetadataTests(unittest.TestCase):
++    def test_namespaces_and_incomplete_contracts(self):
++        suffixes = {"version": 2, "tied_output": True, "block_size": 128,
++                    "transform": "normalized-smooth-discrete-hartley",
++                    "inverse_weight_names": ["token_embd.weight"],
++                    "weight_names": ["blk.0.ffn_gate.weight"],
++                    "diagonal_weight_names": ["blk.0.ffn_gate.weight"]}
++        canonical = {ROTATION_PREFIX + key: value for key, value in suffixes.items()}
++        legacy = {LEGACY_ROTATION_PREFIX + key: value for key, value in suffixes.items()}
++        self.assertEqual(rotation_metadata(canonical), canonical)
++        self.assertEqual(rotation_metadata(legacy), canonical)
++        for invalid in [dict(canonical, **legacy), {ROTATION_PREFIX + "block_size": 128},
++                        {LEGACY_ROTATION_PREFIX + "transform": "normalized-discrete-hartley"}]:
++            with self.assertRaises(ValueError):
++                rotation_metadata(invalid)
++
++    def test_writer_and_lossless_migration(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            source, output = Path(tmp) / "old.gguf", Path(tmp) / "new.gguf"
++            writer = GGUFWriter(source, "llama")
++            writer.add_uint32(LEGACY_ROTATION_PREFIX + "version", 1)
++            writer.add_string(LEGACY_ROTATION_PREFIX + "transform", "normalized-discrete-hartley")
++            writer.add_array(LEGACY_ROTATION_PREFIX + "weight_names", ["test.weight"])
++            writer.add_tensor("test.weight", np.arange(256, dtype=np.float32).reshape(2, 128))
++            writer.add_tensor("test.weight.input_diag", np.ones(128, dtype=np.float16))
++            writer.write_header_to_file()
++            writer.write_kv_data_to_file()
++            writer.write_tensors_to_file()
++            writer.close()
++            record = migrate(source, output)
++            old, new = GGUFReader(source), GGUFReader(output)
++            try:
++                self.assertEqual(record["renamed_keys"], 3)
++                self.assertEqual(rotation_metadata(old.fields).keys(), rotation_metadata(new.fields).keys())
++                self.assertFalse(any(name.startswith(LEGACY_ROTATION_PREFIX) for name in new.fields))
++                for before, after in zip(old.tensors, new.tensors):
++                    self.assertEqual(before.name, after.name)
++                    self.assertEqual(before.tensor_type, after.tensor_type)
++                    np.testing.assert_array_equal(before.data, after.data)
++                before = source.read_bytes()[old.data_offset:]
++                after = output.read_bytes()[new.data_offset:]
++                self.assertEqual(before, after)
++                self.assertEqual(record["payload_sha256"], hashlib.sha256(after).hexdigest())
++                with self.assertRaises(ValueError):
++                    migrate(source, output)
++                with self.assertRaises(ValueError):
++                    migrate(source, source)
++                new_output = Path(tmp) / "again.gguf"
++                with self.assertRaises(ValueError):
++                    migrate(output, new_output)
++                self.assertFalse(new_output.exists())
++            finally:
++                old.data._mmap.close()
++                new.data._mmap.close()
++            writer = GGUFWriter(Path(tmp) / "writer.gguf", "llama")
++            writer.add_rotation_version(1)
++            writer.add_rotation_diagonal_weight_names(["test.weight"])
++            self.assertIn(Keys.Rotation.VERSION, writer.kv_data[0])
++            self.assertIn(Keys.Rotation.DIAGONAL_WEIGHT_NAMES, writer.kv_data[0])
++            self.assertFalse(any(name.startswith(LEGACY_ROTATION_PREFIX) for name in writer.kv_data[0]))
++
++
++if __name__ == "__main__":
++    unittest.main()
 diff --git a/include/llama.h b/include/llama.h
 index 3af6e22233efe53bff96ee5857af26fb886c9a04..6fba7dda66aa63c3adcde0b1252e2380ab424ef3 100644
 --- a/include/llama.h
@@ -1167,32 +1509,89 @@ index 3af6e22233efe53bff96ee5857af26fb886c9a04..6fba7dda66aa63c3adcde0b1252e2380
  
          LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
      };
+diff --git a/src/llama-adapter.cpp b/src/llama-adapter.cpp
+index 6a7ffd6a61dadddc852bd766f9431290903715b7..e54efb74723b35aea57410e45f09ed03ef4c0aac 100644
+--- a/src/llama-adapter.cpp
++++ b/src/llama-adapter.cpp
+@@ -336,7 +336,7 @@ static void llama_adapter_lora_init_impl(llama_model & model, FILE * file, llama
+         }
+         // the LoRA delta of a Hadamard-folded weight reads the transformed input, so the result is wrong
+         if (model.hdmd.weight_blocks.count(name) || model.hdmd.inverse_blocks.count(name)) {
+-            throw std::runtime_error("LoRA tensor '" + name + "' targets a prism.hadamard folded weight, which is not supported");
++            throw std::runtime_error("LoRA tensor '" + name + "' targets a quantization.rotation folded weight, which is not supported");
+         }
+ 
+         auto * buft = ggml_backend_buffer_get_type(model_tensor->buffer);
 diff --git a/src/llama-arch.cpp b/src/llama-arch.cpp
-index 1476a079a7cd764beb2a8ced9190047fc3a5cbc9..4fd210bcfe70cd95ae643d01ebeb586d50603d90 100644
+index 1476a079a7cd764beb2a8ced9190047fc3a5cbc9..c209733d76d3586cb505fd180a69074b6b671eb1 100644
 --- a/src/llama-arch.cpp
 +++ b/src/llama-arch.cpp
-@@ -466,6 +466,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
-     { LLM_KV_PRISM_HADAMARD_SIGN_VALUES,          "prism.hadamard.sign_values"          },
-     { LLM_KV_PRISM_HADAMARD_WEIGHT_NAMES,         "prism.hadamard.weight_names"         },
-     { LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES, "prism.hadamard.inverse_weight_names" },
-+    { LLM_KV_PRISM_HADAMARD_DIAGONAL_WEIGHT_NAMES,"prism.hadamard.diagonal_weight_names"},
-     { LLM_KV_PRISM_HADAMARD_GDN_V_GROUPED,        "prism.hadamard.gdn_v_grouped"        },
+@@ -456,17 +456,18 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
+     { LLM_KV_XIELU_BETA,            "xielu.beta"            },
+     { LLM_KV_XIELU_EPS,             "xielu.eps"             },
+ 
+-    { LLM_KV_PRISM_HADAMARD_VERSION,              "prism.hadamard.version"              },
+-    { LLM_KV_PRISM_HADAMARD_TIED_OUTPUT,          "prism.hadamard.tied_output"          },
+-    { LLM_KV_PRISM_HADAMARD_BLOCK_SIZE,           "prism.hadamard.block_size"           },
+-    { LLM_KV_PRISM_HADAMARD_TRANSFORM,            "prism.hadamard.transform"            },
+-    { LLM_KV_PRISM_HADAMARD_AXIS,                 "prism.hadamard.axis"                 },
+-    { LLM_KV_PRISM_HADAMARD_SIGN_MODE,            "prism.hadamard.sign_mode"            },
+-    { LLM_KV_PRISM_HADAMARD_SIGN_WIDTHS,          "prism.hadamard.sign_widths"          },
+-    { LLM_KV_PRISM_HADAMARD_SIGN_VALUES,          "prism.hadamard.sign_values"          },
+-    { LLM_KV_PRISM_HADAMARD_WEIGHT_NAMES,         "prism.hadamard.weight_names"         },
+-    { LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES, "prism.hadamard.inverse_weight_names" },
+-    { LLM_KV_PRISM_HADAMARD_GDN_V_GROUPED,        "prism.hadamard.gdn_v_grouped"        },
++    { LLM_KV_ROTATION_VERSION,              "quantization.rotation.version"              },
++    { LLM_KV_ROTATION_TIED_OUTPUT,          "quantization.rotation.tied_output"          },
++    { LLM_KV_ROTATION_BLOCK_SIZE,           "quantization.rotation.block_size"           },
++    { LLM_KV_ROTATION_TRANSFORM,            "quantization.rotation.transform"            },
++    { LLM_KV_ROTATION_AXIS,                 "quantization.rotation.axis"                 },
++    { LLM_KV_ROTATION_SIGN_MODE,            "quantization.rotation.sign_mode"            },
++    { LLM_KV_ROTATION_SIGN_WIDTHS,          "quantization.rotation.sign_widths"          },
++    { LLM_KV_ROTATION_SIGN_VALUES,          "quantization.rotation.sign_values"          },
++    { LLM_KV_ROTATION_WEIGHT_NAMES,         "quantization.rotation.weight_names"         },
++    { LLM_KV_ROTATION_INVERSE_WEIGHT_NAMES, "quantization.rotation.inverse_weight_names" },
++    { LLM_KV_ROTATION_DIAGONAL_WEIGHT_NAMES,"quantization.rotation.diagonal_weight_names"},
++    { LLM_KV_ROTATION_GDN_V_GROUPED,        "quantization.rotation.gdn_v_grouped"        },
  
      // deprecated
+     { LLM_KV_TOKENIZER_PREFIX_ID, "tokenizer.ggml.prefix_token_id" },
 diff --git a/src/llama-arch.h b/src/llama-arch.h
-index 0c842d312db1ef60930003da885a1ab2dd3dfde6..b76414574beb7f0ed74a368c2169e90385dace4b 100644
+index 0c842d312db1ef60930003da885a1ab2dd3dfde6..39d604bb278263c13fb583a08c2c1211a86e23fa 100644
 --- a/src/llama-arch.h
 +++ b/src/llama-arch.h
-@@ -464,6 +464,7 @@ enum llm_kv {
-     LLM_KV_PRISM_HADAMARD_SIGN_VALUES,
-     LLM_KV_PRISM_HADAMARD_WEIGHT_NAMES,
-     LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES,
-+    LLM_KV_PRISM_HADAMARD_DIAGONAL_WEIGHT_NAMES,
-     LLM_KV_PRISM_HADAMARD_GDN_V_GROUPED,
+@@ -454,17 +454,18 @@ enum llm_kv {
+     LLM_KV_XIELU_BETA,
+     LLM_KV_XIELU_EPS,
+ 
+-    LLM_KV_PRISM_HADAMARD_VERSION,
+-    LLM_KV_PRISM_HADAMARD_TIED_OUTPUT,
+-    LLM_KV_PRISM_HADAMARD_BLOCK_SIZE,
+-    LLM_KV_PRISM_HADAMARD_TRANSFORM,
+-    LLM_KV_PRISM_HADAMARD_AXIS,
+-    LLM_KV_PRISM_HADAMARD_SIGN_MODE,
+-    LLM_KV_PRISM_HADAMARD_SIGN_WIDTHS,
+-    LLM_KV_PRISM_HADAMARD_SIGN_VALUES,
+-    LLM_KV_PRISM_HADAMARD_WEIGHT_NAMES,
+-    LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES,
+-    LLM_KV_PRISM_HADAMARD_GDN_V_GROUPED,
++    LLM_KV_ROTATION_VERSION,
++    LLM_KV_ROTATION_TIED_OUTPUT,
++    LLM_KV_ROTATION_BLOCK_SIZE,
++    LLM_KV_ROTATION_TRANSFORM,
++    LLM_KV_ROTATION_AXIS,
++    LLM_KV_ROTATION_SIGN_MODE,
++    LLM_KV_ROTATION_SIGN_WIDTHS,
++    LLM_KV_ROTATION_SIGN_VALUES,
++    LLM_KV_ROTATION_WEIGHT_NAMES,
++    LLM_KV_ROTATION_INVERSE_WEIGHT_NAMES,
++    LLM_KV_ROTATION_DIAGONAL_WEIGHT_NAMES,
++    LLM_KV_ROTATION_GDN_V_GROUPED,
  
      // deprecated:
+     LLM_KV_TOKENIZER_PREFIX_ID,
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 9ee64b566779ea42af3ce4d4589d170ad1923fdf..d28623583e8796661624e9e81385680f73c43c0a 100644
+index 9ee64b566779ea42af3ce4d4589d170ad1923fdf..08a0ccb4a1b06293385f01befed3cc117740d1a2 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
 @@ -50,6 +50,15 @@ static void llama_verify_hadamard_graph(
@@ -1220,7 +1619,7 @@ index 9ee64b566779ea42af3ce4d4589d170ad1923fdf..d28623583e8796661624e9e81385680f
              const auto lk = lookups.find(unwrap(node->src[1]));
              if (lk != lookups.end()) {
                  lk->second = true;
-@@ -79,9 +88,7 @@ static void llama_verify_hadamard_graph(
+@@ -79,13 +88,11 @@ static void llama_verify_hadamard_graph(
              continue;
          }
          const ggml_tensor * src = unwrap(node->src[1]);
@@ -1231,6 +1630,24 @@ index 9ee64b566779ea42af3ce4d4589d170ad1923fdf..d28623583e8796661624e9e81385680f
          if (!transformed) {
              throw std::runtime_error(format(
                  "Hadamard-folded weight '%s' is consumed without its activation transform; "
+-                "this graph's matmul path does not support prism.hadamard folding",
++                "this graph's matmul path does not support quantization.rotation folding",
+                 node->src[0]->name));
+         }
+     }
+diff --git a/src/llama-context.h b/src/llama-context.h
+index 6938fb103cdefc5f742c5672bb2627e48fd11740..e6b2e77ac9c1c35b53076cc0bc5d9c7e0d60f6cb 100644
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -428,7 +428,7 @@ private:
+     // env: LLAMA_GRAPH_REUSE_DISABLE
+     bool graph_reuse_disable = false;
+ 
+-    // true after the prism.hadamard coverage check passes on a reserved graph
++    // true after the quantization.rotation coverage check passes on a reserved graph
+     bool hadamard_verified = false;
+ 
+     // perf
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
 index 80be4bb57373235560039d372e09eaf40d3599c1..9be6ff667b56581774389339353be0d5417a92a4 100644
 --- a/src/llama-graph.cpp
@@ -1400,10 +1817,10 @@ index ed59079a4eadd8a310c013de20a87d782d490377..1e3ea3662aad0043f7cad3936d81a3fe
  
      // byte range within a mapped file
 diff --git a/src/llama-model.cpp b/src/llama-model.cpp
-index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab4534b517c8 100644
+index 3da32333b10a64cac60946331f323415814697d0..ed031095bb69207647a1fd24d223c2173ad17ea0 100644
 --- a/src/llama-model.cpp
 +++ b/src/llama-model.cpp
-@@ -2025,7 +2025,7 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
+@@ -2025,25 +2025,50 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
          }
      }
  
@@ -1412,29 +1829,144 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
  
      return true;
  }
-@@ -2061,12 +2061,20 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+ 
+-// read and check the prism.hadamard metadata, and record the folded weights (load_tensors_hadamard makes the tensors)
++// read and check the quantization.rotation metadata, and record the folded weights (load_tensors_hadamard makes the tensors)
+ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
++    const std::string canonical_prefix = "quantization.rotation.";
++    const std::string legacy_prefix = "prism.hadamard.";
++    bool canonical = false;
++    bool legacy = false;
++    for (int64_t i = 0; i < gguf_get_n_kv(ml.metadata); ++i) {
++        const std::string key = gguf_get_key(ml.metadata, i);
++        canonical = canonical || key.compare(0, canonical_prefix.size(), canonical_prefix) == 0;
++        legacy = legacy || key.compare(0, legacy_prefix.size(), legacy_prefix) == 0;
++    }
++    if (canonical && legacy) {
++        throw std::runtime_error("mixed canonical and legacy rotation metadata");
++    }
++    if (!canonical && !legacy) {
++        return;
++    }
++    const auto rotation_key = [&](llm_kv kid) {
++        std::string key = ml.llm_kv(kid);
++        if (legacy) {
++            key.replace(0, canonical_prefix.size(), legacy_prefix);
++        }
++        return key;
++    };
++    if (gguf_find_key(ml.metadata, rotation_key(LLM_KV_ROTATION_VERSION).c_str()) < 0) {
++        throw std::runtime_error("rotation metadata requires a version");
++    }
+     uint32_t hadamard_version = 0;
+-    ml.get_key(LLM_KV_PRISM_HADAMARD_TIED_OUTPUT, hdmd.tied_output, false);
+-    if (ml.get_key(LLM_KV_PRISM_HADAMARD_VERSION, hadamard_version, false)) {
++    ml.get_key(rotation_key(LLM_KV_ROTATION_TIED_OUTPUT), hdmd.tied_output, false);
++    if (ml.get_key(rotation_key(LLM_KV_ROTATION_VERSION), hadamard_version, false)) {
+         if (hadamard_version != 1 && hadamard_version != 2) {
+-            throw std::runtime_error(format("unsupported prism.hadamard.version: %u", hadamard_version));
++            throw std::runtime_error(format("unsupported quantization.rotation.version: %u", hadamard_version));
+         }
+ 
+         if ((hadamard_version == 2) != hdmd.tied_output) {
+-            throw std::runtime_error("prism.hadamard version 2 requires tied_output=true; version 1 forbids it");
++            throw std::runtime_error("quantization.rotation version 2 requires tied_output=true; version 1 forbids it");
+         }
+         if (hdmd.tied_output && ml.get_weight("output.weight")) {
+-            throw std::runtime_error("prism.hadamard.tied_output requires output.weight to be absent");
++            throw std::runtime_error("quantization.rotation.tied_output requires output.weight to be absent");
+         }
+ 
+         uint32_t block_size = 0;
+@@ -2052,60 +2077,68 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+         std::string sign_mode;
+         std::vector<std::string> weight_names;
+ 
+-        ml.get_key(LLM_KV_PRISM_HADAMARD_BLOCK_SIZE, block_size);
+-        ml.get_key(LLM_KV_PRISM_HADAMARD_TRANSFORM, transform);
+-        ml.get_key(LLM_KV_PRISM_HADAMARD_AXIS, axis);
+-        ml.get_key(LLM_KV_PRISM_HADAMARD_SIGN_MODE, sign_mode);
+-        ml.get_arr(LLM_KV_PRISM_HADAMARD_WEIGHT_NAMES, weight_names);
++        ml.get_key(rotation_key(LLM_KV_ROTATION_BLOCK_SIZE), block_size);
++        ml.get_key(rotation_key(LLM_KV_ROTATION_TRANSFORM), transform);
++        ml.get_key(rotation_key(LLM_KV_ROTATION_AXIS), axis);
++        ml.get_key(rotation_key(LLM_KV_ROTATION_SIGN_MODE), sign_mode);
++        ml.get_arr(rotation_key(LLM_KV_ROTATION_WEIGHT_NAMES), weight_names);
+ 
          if (block_size == 0 || (block_size & (block_size - 1)) != 0) {
-             throw std::runtime_error(format("invalid prism.hadamard.block_size: %u", block_size));
+-            throw std::runtime_error(format("invalid prism.hadamard.block_size: %u", block_size));
++            throw std::runtime_error(format("invalid quantization.rotation.block_size: %u", block_size));
          }
 -        if (transform != "normalized-sylvester-walsh-hadamard") {
+-            throw std::runtime_error(format("unsupported prism.hadamard.transform: %s", transform.c_str()));
 +        if (transform == "normalized-sylvester-walsh-hadamard") {
 +            hdmd.hartley = false;
 +        } else if (transform == "normalized-smooth-discrete-hartley" ||
 +                   transform == "normalized-discrete-hartley") {
 +            hdmd.hartley = true;
 +        } else {
-             throw std::runtime_error(format("unsupported prism.hadamard.transform: %s", transform.c_str()));
++            throw std::runtime_error(format("unsupported quantization.rotation.transform: %s", transform.c_str()));
          }
          if (axis != "input-last-dimension") {
-             throw std::runtime_error(format("unsupported prism.hadamard.axis: %s", axis.c_str()));
-         }
-+        if (hdmd.hartley && sign_mode != "identity") {
-+            throw std::runtime_error("prism.hadamard: the Hartley transform requires sign_mode=identity");
+-            throw std::runtime_error(format("unsupported prism.hadamard.axis: %s", axis.c_str()));
++            throw std::runtime_error(format("unsupported quantization.rotation.axis: %s", axis.c_str()));
 +        }
-         if (sign_mode != "identity" && sign_mode != "explicit") {
-             throw std::runtime_error(format("unsupported prism.hadamard.sign_mode: %s", sign_mode.c_str()));
++        if (hdmd.hartley && sign_mode != "identity") {
++            throw std::runtime_error("quantization.rotation: the Hartley transform requires sign_mode=identity");
          }
-@@ -2115,6 +2123,7 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+         if (sign_mode != "identity" && sign_mode != "explicit") {
+-            throw std::runtime_error(format("unsupported prism.hadamard.sign_mode: %s", sign_mode.c_str()));
++            throw std::runtime_error(format("unsupported quantization.rotation.sign_mode: %s", sign_mode.c_str()));
+         }
+         if (weight_names.empty()) {
+-            throw std::runtime_error("prism.hadamard.weight_names is empty");
++            throw std::runtime_error("quantization.rotation.weight_names is empty");
+         }
+ 
+         if (sign_mode == "explicit") {
+             std::vector<int32_t> sign_widths;
+             std::vector<int32_t> sign_values;
+-            ml.get_arr(LLM_KV_PRISM_HADAMARD_SIGN_WIDTHS, sign_widths);
+-            ml.get_arr(LLM_KV_PRISM_HADAMARD_SIGN_VALUES, sign_values);
++            ml.get_arr(rotation_key(LLM_KV_ROTATION_SIGN_WIDTHS), sign_widths);
++            ml.get_arr(rotation_key(LLM_KV_ROTATION_SIGN_VALUES), sign_values);
+             // explicit mode with no widths gives an empty sign table, which acts as identity and changes the model
+             if (sign_widths.empty()) {
+-                throw std::runtime_error("prism.hadamard.sign_mode is explicit but sign_widths is empty");
++                throw std::runtime_error("quantization.rotation.sign_mode is explicit but sign_widths is empty");
+             }
+             size_t off = 0;
+             for (const int32_t width : sign_widths) {
+                 if (width <= 0 || (uint32_t) width % block_size != 0 || off + width > sign_values.size()) {
+-                    throw std::runtime_error(format("invalid prism.hadamard sign width: %d", width));
++                    throw std::runtime_error(format("invalid quantization.rotation sign width: %d", width));
+                 }
+                 if (hdmd.sign_data.count(width)) {
+-                    throw std::runtime_error(format("duplicate prism.hadamard sign width: %d", width));
++                    throw std::runtime_error(format("duplicate quantization.rotation sign width: %d", width));
+                 }
+                 auto & vec = hdmd.sign_data[width];
+                 vec.assign(sign_values.begin() + off, sign_values.begin() + off + width);
+                 for (const int32_t v : vec) {
+                     if (v != 1 && v != -1) {
+-                        throw std::runtime_error("prism.hadamard sign values must be +/-1");
++                        throw std::runtime_error("quantization.rotation sign values must be +/-1");
+                     }
+                 }
+                 off += width;
+             }
+             if (off != sign_values.size()) {
+-                throw std::runtime_error("prism.hadamard.sign_values length mismatch");
++                throw std::runtime_error("quantization.rotation.sign_values length mismatch");
+             }
+         }
+ 
+-        ml.get_key(LLM_KV_PRISM_HADAMARD_GDN_V_GROUPED, hdmd.gdn_v_grouped, false);
++        ml.get_key(rotation_key(LLM_KV_ROTATION_GDN_V_GROUPED), hdmd.gdn_v_grouped, false);
+ 
+         // only build_lora_mm/build_lora_mm_id apply the transform: refuse archs and tensor kinds that can skip them
+         switch (arch) {
+@@ -2115,10 +2148,11 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
              case LLM_ARCH_QWEN35:
              case LLM_ARCH_QWEN35MOE:
              case LLM_ARCH_QWEN3NEXT:
@@ -1442,7 +1974,12 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
                  break;
              default:
                  throw std::runtime_error(format(
-@@ -2130,6 +2139,7 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+-                    "prism.hadamard: arch '%s' is not verified to apply the activation transform to all folded weights",
++                    "quantization.rotation: arch '%s' is not verified to apply the activation transform to all folded weights",
+                     llm_arch_name(arch)));
+         }
+ 
+@@ -2130,6 +2164,7 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
                  "ffn_gate", "ffn_up", "ffn_down",
                  "ffn_gate_exps", "ffn_up_exps", "ffn_down_exps", "ffn_gate_up_exps",
                  "ffn_gate_shexp", "ffn_up_shexp", "ffn_down_shexp",
@@ -1450,43 +1987,79 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
                  "ssm_out",
              };
              if (name == "output.weight") {
-@@ -2165,6 +2175,35 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+@@ -2158,35 +2193,64 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+         for (const auto & weight_name : weight_names) {
+             if (!is_foldable_weight(weight_name)) {
+                 throw std::runtime_error(format(
+-                    "prism.hadamard: weight '%s' is not on a verified Hadamard-aware matmul path", weight_name.c_str()));
++                    "quantization.rotation: weight '%s' is not on a verified rotation-aware matmul path", weight_name.c_str()));
              }
-         }
- 
+             if (!hdmd.weight_blocks.emplace(weight_name, block_size).second) {
+-                throw std::runtime_error(format("duplicate prism.hadamard weight: %s", weight_name.c_str()));
++                throw std::runtime_error(format("duplicate quantization.rotation weight: %s", weight_name.c_str()));
++            }
++        }
++
 +        // a folded weight can also carry a per-input-channel smoothing diagonal: W_f = W*diag(D)*H, so the graph scales the input by D^-1 before the rotation
 +        // the vector itself lives in a companion F16 tensor, read by load_tensors_hadamard
 +        std::vector<std::string> diagonal_names;
-+        ml.get_arr(LLM_KV_PRISM_HADAMARD_DIAGONAL_WEIGHT_NAMES, diagonal_names, false);
++        ml.get_arr(rotation_key(LLM_KV_ROTATION_DIAGONAL_WEIGHT_NAMES), diagonal_names, false);
 +        for (const auto & weight_name : diagonal_names) {
 +            if (!hdmd.weight_blocks.count(weight_name)) {
 +                throw std::runtime_error(format(
-+                    "prism.hadamard: weight '%s' has an input diagonal but is not listed in prism.hadamard.weight_names",
++                    "quantization.rotation: weight '%s' has an input diagonal but is not listed in quantization.rotation.weight_names",
 +                    weight_name.c_str()));
 +            }
 +            const ggml_tensor * weight = ml.get_tensor_meta(weight_name.c_str());
 +            if (weight == nullptr) {
-+                throw std::runtime_error(format("prism.hadamard weight not found: %s", weight_name.c_str()));
++                throw std::runtime_error(format("quantization.rotation weight not found: %s", weight_name.c_str()));
 +            }
 +            const std::string diagonal_name = weight_name + ".input_diag";
 +            const ggml_tensor * diagonal = ml.require_tensor_meta(diagonal_name);
 +            if (diagonal->type != GGML_TYPE_F16 || diagonal->ne[0] != weight->ne[0] ||
 +                    diagonal->ne[1] != 1 || diagonal->ne[2] != 1 || diagonal->ne[3] != 1) {
 +                throw std::runtime_error(format(
-+                    "prism.hadamard: input diagonal %s must be an F16 vector of length %lld",
++                    "quantization.rotation: input diagonal %s must be an F16 vector of length %lld",
 +                    diagonal_name.c_str(), (long long) weight->ne[0]));
 +            }
 +            if (!hdmd.diagonal_names.insert(weight_name).second) {
-+                throw std::runtime_error(format("duplicate prism.hadamard input diagonal: %s", weight_name.c_str()));
-+            }
++                throw std::runtime_error(format("duplicate quantization.rotation input diagonal: %s", weight_name.c_str()));
+             }
 +            // the vector is read directly by load_tensors_hadamard, not through create_tensor
 +            ml.mark_tensor_used(diagonal_name);
-+        }
-+
+         }
+ 
          // tables read by row lookup store latent rows: the inverse transform goes on the lookup result
          std::vector<std::string> inverse_names;
-         ml.get_arr(LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES, inverse_names, false);
-@@ -2196,7 +2235,7 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
+-        ml.get_arr(LLM_KV_PRISM_HADAMARD_INVERSE_WEIGHT_NAMES, inverse_names, false);
++        ml.get_arr(rotation_key(LLM_KV_ROTATION_INVERSE_WEIGHT_NAMES), inverse_names, false);
+         for (const auto & name : inverse_names) {
+             // the graph applies the inverse only after the token-embedding lookup, other latent tables stay rotated
+             if (name != "token_embd.weight") {
+                 throw std::runtime_error(format(
+-                    "prism.hadamard: weight '%s' is not a verified inverse-after-lookup table", name.c_str()));
++                    "quantization.rotation: weight '%s' is not a verified inverse-after-lookup table", name.c_str()));
+             }
+             if (hdmd.weight_blocks.count(name) || !hdmd.inverse_blocks.emplace(name, block_size).second) {
+-                throw std::runtime_error(format("duplicate prism.hadamard inverse weight: %s", name.c_str()));
++                throw std::runtime_error(format("duplicate quantization.rotation inverse weight: %s", name.c_str()));
+             }
+         }
+     }
+ 
+     if (hdmd.tied_output) {
+         if (hadamard_version != 2) {
+-            throw std::runtime_error("prism.hadamard.tied_output requires version 2");
++            throw std::runtime_error("quantization.rotation.tied_output requires version 2");
+         }
+         const auto it = hdmd.inverse_blocks.find("token_embd.weight");
+         if (it == hdmd.inverse_blocks.end()) {
+-            throw std::runtime_error("prism.hadamard.tied_output requires a latent token embedding");
++            throw std::runtime_error("quantization.rotation.tied_output requires a latent token embedding");
+         }
+         hdmd.weight_blocks.emplace("token_embd.weight", it->second);
+     } else if (hdmd.inverse_blocks.count("token_embd.weight") && !ml.get_weight("output.weight")) {
+@@ -2196,7 +2260,7 @@ void llama_model_base::load_hparams_hadamard(llama_model_loader & ml) {
  
  // make one Hadamard matrix per block size and one sign vector per width (the GGUF does not contain them)
  // each tensor goes on the buffer type of its weights (never a CPU extra type), and each transform goes in hdmd.rot or hdmd.inv
@@ -1495,7 +2068,7 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
      if (hdmd.weight_blocks.empty() && hdmd.inverse_blocks.empty()) {
          return;
      }
-@@ -2204,12 +2243,90 @@ void llama_model_base::load_tensors_hadamard() {
+@@ -2204,12 +2268,90 @@ void llama_model_base::load_tensors_hadamard() {
      struct hadamard_rotation {
          uint32_t block_size;
          ggml_backend_buffer_type_t buft;
@@ -1531,7 +2104,7 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
 +    for (const auto & weight_name : hdmd.diagonal_names) {
 +        const ggml_tensor * weight = get_tensor(weight_name.c_str());
 +        if (weight == nullptr) {
-+            throw std::runtime_error(format("prism.hadamard weight not found: %s", weight_name.c_str()));
++            throw std::runtime_error(format("quantization.rotation weight not found: %s", weight_name.c_str()));
 +        }
 +
 +        const std::string diagonal_name = weight_name + ".input_diag";
@@ -1586,8 +2159,27 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
      const std::pair<const std::unordered_map<std::string, uint32_t> *, llama_hadamard_rotations *> groups[] = {
          { &hdmd.weight_blocks,  &hdmd.rot },
          { &hdmd.inverse_blocks, &hdmd.inv  },
-@@ -2240,21 +2357,15 @@ void llama_model_base::load_tensors_hadamard() {
-                 throw std::runtime_error(format("prism.hadamard weight has no buffer: %s", weight_name.c_str()));
+@@ -2225,36 +2367,30 @@ void llama_model_base::load_tensors_hadamard() {
+             if (hdmd.tied_output && weight_name == "token_embd.weight") {
+                 weight = target == &hdmd.rot ? output : tok_embd;
+                 if (!weight || strcmp(weight->name, "token_embd.weight") != 0) {
+-                    throw std::runtime_error("prism.hadamard.tied_output is not bound to the token embedding");
++                    throw std::runtime_error("quantization.rotation.tied_output is not bound to the token embedding");
+                 }
+             }
+             if (weight == nullptr) {
+-                throw std::runtime_error(format("prism.hadamard weight not found: %s", weight_name.c_str()));
++                throw std::runtime_error(format("quantization.rotation weight not found: %s", weight_name.c_str()));
+             }
+             if (weight->ne[0] % block_size != 0) {
+                 throw std::runtime_error(format(
+-                    "prism.hadamard block size %u does not divide input dimension %lld for %s",
++                    "quantization.rotation block size %u does not divide input dimension %lld for %s",
+                     block_size, (long long) weight->ne[0], weight_name.c_str()));
+             }
+             if (weight->buffer == nullptr) {
+-                throw std::runtime_error(format("prism.hadamard weight has no buffer: %s", weight_name.c_str()));
++                throw std::runtime_error(format("quantization.rotation weight has no buffer: %s", weight_name.c_str()));
              }
  
 -            ggml_backend_buffer_type_t buft = ggml_backend_buffer_get_type(weight->buffer);
@@ -1611,16 +2203,16 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
                      });
  
              if (it == rotations.end()) {
-@@ -2270,7 +2381,7 @@ void llama_model_base::load_tensors_hadamard() {
+@@ -2270,7 +2406,7 @@ void llama_model_base::load_tensors_hadamard() {
  
                  ggml_tensor * rotation = ggml_new_tensor_2d(ctx.get(), GGML_TYPE_F32, block_size, block_size);
                  char rotation_name[GGML_MAX_NAME];
 -                snprintf(rotation_name, sizeof(rotation_name), "prism.hadamard.%u", block_size);
-+                snprintf(rotation_name, sizeof(rotation_name), hdmd.hartley ? "prism.hartley.%u" : "prism.hadamard.%u", block_size);
++                snprintf(rotation_name, sizeof(rotation_name), hdmd.hartley ? "rotation.hartley.%u" : "rotation.walsh_hadamard.%u", block_size);
                  ggml_set_name(rotation, rotation_name);
  
                  ggml_backend_buffer_ptr buffer { ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft) };
-@@ -2283,6 +2394,12 @@ void llama_model_base::load_tensors_hadamard() {
+@@ -2283,6 +2419,12 @@ void llama_model_base::load_tensors_hadamard() {
                  const float scale = 1.0f / sqrtf((float) block_size);
                  for (uint32_t row = 0; row < block_size; ++row) {
                      for (uint32_t col = 0; col < block_size; ++col) {
@@ -1633,7 +2225,7 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
                          uint32_t parity = row & col;
                          parity ^= parity >> 16;
                          parity ^= parity >> 8;
-@@ -2297,7 +2414,7 @@ void llama_model_base::load_tensors_hadamard() {
+@@ -2297,7 +2439,7 @@ void llama_model_base::load_tensors_hadamard() {
                  std::vector<ggml_backend_buffer_ptr> buffers;
                  buffers.emplace_back(std::move(buffer));
                  pimpl->ctxs_bufs.emplace_back(std::move(ctx), std::move(buffers));
@@ -1642,7 +2234,25 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
                  it = std::prev(rotations.end());
              }
  
-@@ -2348,6 +2465,10 @@ void llama_model_base::load_tensors_hadamard() {
+@@ -2307,7 +2449,7 @@ void llama_model_base::load_tensors_hadamard() {
+                 const auto sd = hdmd.sign_data.find(width);
+                 if (sd == hdmd.sign_data.end()) {
+                     throw std::runtime_error(format(
+-                        "prism.hadamard has no sign vector for width %u (%s)", width, weight_name.c_str()));
++                        "quantization.rotation has no sign vector for width %u (%s)", width, weight_name.c_str()));
+                 }
+                 const auto key = std::make_pair(width, buft);
+                 auto st = sign_tensors.find(key);
+@@ -2324,7 +2466,7 @@ void llama_model_base::load_tensors_hadamard() {
+ 
+                     ggml_tensor * signs = ggml_new_tensor_1d(ctx.get(), GGML_TYPE_F32, width);
+                     char sign_name[GGML_MAX_NAME];
+-                    snprintf(sign_name, sizeof(sign_name), "prism.hadamard.signs.%u", width);
++                    snprintf(sign_name, sizeof(sign_name), "rotation.signs.%u", width);
+                     ggml_set_name(signs, sign_name);
+ 
+                     ggml_backend_buffer_ptr buffer { ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft) };
+@@ -2348,17 +2490,21 @@ void llama_model_base::load_tensors_hadamard() {
              }
  
              llama_hadamard_transform transform { it->tensor, sign_tensor };
@@ -1653,19 +2263,22 @@ index 3da32333b10a64cac60946331f323415814697d0..af120da74632e6cf3da43940dd18ab45
              // the GDN output projection reads its value heads in tiled order, see set_gdn_v_perm
              if (hdmd.gdn_v_grouped && weight_name.find(".ssm_out.") != std::string::npos &&
                  !transform.set_gdn_v_perm(weight->ne[0], hparams.ssm_dt_rank, hparams.ssm_n_group)) {
-@@ -2357,8 +2478,8 @@ void llama_model_base::load_tensors_hadamard() {
+-                throw std::runtime_error(format("prism.hadamard: bad GDN head geometry for %s", weight_name.c_str()));
++                throw std::runtime_error(format("quantization.rotation: bad GDN head geometry for %s", weight_name.c_str()));
+             }
+             target->emplace(weight, transform);
          }
      }
  
 -    LLAMA_LOG_INFO("%s: loaded %zu Hadamard-folded weight(s) (%zu inverse-lookup) using %zu rotation(s) and %zu sign vector(s)\n",
 -            __func__, hdmd.rot.size() + hdmd.inv.size(), hdmd.inv.size(), rotations.size(), sign_tensors.size());
-+    LLAMA_LOG_INFO("%s: loaded %zu Hadamard-folded weight(s) (%zu inverse-lookup) using %zu rotation(s), %zu sign vector(s) and %zu input diagonal(s)\n",
++    LLAMA_LOG_INFO("%s: loaded %zu rotation-folded weight(s) (%zu inverse-lookup) using %zu rotation(s), %zu sign vector(s) and %zu input diagonal(s)\n",
 +            __func__, hdmd.rot.size() + hdmd.inv.size(), hdmd.inv.size(), rotations.size(), sign_tensors.size(), hdmd.diagonal_names.size());
  }
  
  ggml_tensor * llama_model_base::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
 diff --git a/src/llama-model.h b/src/llama-model.h
-index 6335dc2bc3182243893d9369dc3130d786de4462..50363941f53a6face8978b4b1bb39281c61c25f2 100644
+index 6335dc2bc3182243893d9369dc3130d786de4462..81951c432ba81066663fd3dd1d69b9147fbcbe8a 100644
 --- a/src/llama-model.h
 +++ b/src/llama-model.h
 @@ -670,6 +670,13 @@ struct llama_hadamard_transform {
@@ -1696,11 +2309,17 @@ index 6335dc2bc3182243893d9369dc3130d786de4462..50363941f53a6face8978b4b1bb39281
      bool gdn_v_grouped = false;
      bool tied_output = false;
  
-@@ -961,7 +975,7 @@ struct llama_model_base : public llama_model {
+@@ -957,11 +971,11 @@ struct llama_model_base : public llama_model {
+     };
+     nextn_flags_t nextn_flags(llama_model_loader & ml, llm_tensor trunk_probe = LLM_TENSOR_ATTN_NORM) const;
+ 
+-    // helper: read the prism.hadamard metadata and record which weights are folded
++    // helper: read the quantization.rotation metadata and record which weights are folded
      void load_hparams_hadamard(llama_model_loader & ml);
  
-     // helper: make the prism.hadamard rotation and sign tensors for the folded weights
+-    // helper: make the prism.hadamard rotation and sign tensors for the folded weights
 -    void load_tensors_hadamard();
++    // helper: make the quantization.rotation rotation and sign tensors for the folded weights
 +    void load_tensors_hadamard(llama_model_loader & ml);
  
      // helper: read the SWA pattern as one flag per layer, or as a period expanded by set_swa_pattern
@@ -1736,21 +2355,21 @@ index b8f96bcef30fc94e147fd3dfc04a8f9af25a3488..6990048a4ce2c721fef54f7191411dc3
          case LLAMA_FTYPE_MOSTLY_MXFP4_MOE: return GGML_TYPE_MXFP4;
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 991bf547998d8a2a553329e4d44499126c9413c2..69747a2a67aeeddaf7fb5f20a3dd937f9741b17a 100644
+index 991bf547998d8a2a553329e4d44499126c9413c2..5c53163b6bba4815792544eab48e62f6c894efad 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -365,6 +365,9 @@ get_filename_component(TEST_TARGET test-c.c NAME_WE)
  add_executable(${TEST_TARGET} test-c.c)
  target_link_libraries(${TEST_TARGET} PRIVATE llama)
  
-+llama_build_and_test(test-prism-smooth-dht.cpp LINK llama)
-+llama_build_and_test(test-prism-tq1-0-128.cpp LINK llama)
++llama_build_and_test(test-sdht.cpp LINK llama)
++llama_build_and_test(test-tq1-0-128.cpp LINK llama)
 +
  if (NOT LLAMA_USE_SYSTEM_GGML)
      # Needs non-public ggml-impl.h
      llama_build_and_test(test-gguf.cpp LINK ggml)
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index ba7f7eb4e56caa7379b8f801cad09c3a3c74f765..6e017eab2c9d1bd9606e43378215c135c5bb15ea 100644
+index ba7f7eb4e56caa7379b8f801cad09c3a3c74f765..e775e8b2b34bd2a32271293bd8f6fdfa795f4e0f 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
 @@ -1536,6 +1536,9 @@ struct test_case {
@@ -1860,7 +2479,7 @@ index ba7f7eb4e56caa7379b8f801cad09c3a3c74f765..6e017eab2c9d1bd9606e43378215c135
          test_cases.emplace_back(new test_mul_mat(type_a,    GGML_TYPE_F32, 16,  8, 16*256, { 1,  1}, {1, 1}));
      }
  
-+    // tq1_0_128: the shapes used by tests/test-prism-tq1-0-128.cpp
++    // tq1_0_128: the shapes used by tests/test-tq1-0-128.cpp
 +    for (ggml_type type_a : { GGML_TYPE_TQ1_0_128 }) {
 +        test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 256, 4, 256, { 1, 1 }, { 1, 1 }));
 +        test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 512, 4, 256, { 1, 1 }, { 1, 1 }));
@@ -1888,12 +2507,12 @@ index ba7f7eb4e56caa7379b8f801cad09c3a3c74f765..6e017eab2c9d1bd9606e43378215c135
      test_cases.emplace_back(new test_solve_tri(GGML_TYPE_F32, { 64, 64, 4, 4 }, { 32, 64, 4, 4 }));
      test_cases.emplace_back(new test_solve_tri(GGML_TYPE_F32, { 128, 128, 4, 2 }, { 32, 128, 4, 2 }));
      // qwen3next with CHUNK_SIZE 64
-diff --git a/tests/test-prism-smooth-dht.cpp b/tests/test-prism-smooth-dht.cpp
+diff --git a/tests/test-sdht.cpp b/tests/test-sdht.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23851bd5b1
+index 0000000000000000000000000000000000000000..be7b12aab2410cc14a568571fac7aa25800a7026
 --- /dev/null
-+++ b/tests/test-prism-smooth-dht.cpp
-@@ -0,0 +1,348 @@
++++ b/tests/test-sdht.cpp
+@@ -0,0 +1,373 @@
 +#include "llama.h"
 +#include "ggml.h"
 +#include "gguf.h"
@@ -1979,7 +2598,7 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +    a = out;
 +}
 +
-+static bool write_model(const std::string & path, bool folded) {
++static bool write_model(const std::string & path, bool folded, bool legacy = false, bool mixed = false, bool missing_version = false) {
 +    const std::vector<tensor_spec> specs = model_tensors();
 +
 +    ggml_init_params gparams = {
@@ -1996,7 +2615,7 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +    gguf_context * gugf = gguf_init_empty();
 +
 +    gguf_set_val_str (gugf, "general.architecture", "llama");
-+    gguf_set_val_str (gugf, "general.name",         "tiny-prism-smooth-dht");
++    gguf_set_val_str (gugf, "general.name",         "tiny-sdht");
 +
 +    gguf_set_val_u32 (gugf, "llama.context_length",                     64);
 +    gguf_set_val_u32 (gugf, "llama.embedding_length",                   N_EMBD);
@@ -2084,13 +2703,19 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +            folded_ptrs.push_back(name.c_str());
 +        }
 +
-+        gguf_set_val_u32 (gugf, "prism.hadamard.version",    1);
-+        gguf_set_val_u32 (gugf, "prism.hadamard.block_size", DHT_BLOCK);
-+        gguf_set_val_str (gugf, "prism.hadamard.transform",  "normalized-smooth-discrete-hartley");
-+        gguf_set_val_str (gugf, "prism.hadamard.axis",       "input-last-dimension");
-+        gguf_set_val_str (gugf, "prism.hadamard.sign_mode",  "identity");
-+        gguf_set_arr_str (gugf, "prism.hadamard.weight_names",           folded_ptrs.data(), folded_ptrs.size());
-+        gguf_set_arr_str (gugf, "prism.hadamard.diagonal_weight_names",  folded_ptrs.data(), folded_ptrs.size());
++        const std::string prefix = legacy ? "prism.hadamard." : "quantization.rotation.";
++        if (!missing_version) {
++            gguf_set_val_u32(gugf, (prefix + "version").c_str(), 1);
++        }
++        gguf_set_val_u32(gugf, (prefix + "block_size").c_str(), DHT_BLOCK);
++        gguf_set_val_str(gugf, (prefix + "transform").c_str(), "normalized-smooth-discrete-hartley");
++        gguf_set_val_str(gugf, (prefix + "axis").c_str(), "input-last-dimension");
++        gguf_set_val_str(gugf, (prefix + "sign_mode").c_str(), "identity");
++        gguf_set_arr_str(gugf, (prefix + "weight_names").c_str(), folded_ptrs.data(), folded_ptrs.size());
++        gguf_set_arr_str(gugf, (prefix + "diagonal_weight_names").c_str(), folded_ptrs.data(), folded_ptrs.size());
++        if (mixed) {
++            gguf_set_val_u32(gugf, "prism.hadamard.version", 1);
++        }
 +    }
 +
 +    const bool ok = gguf_write_to_file(gugf, path.c_str(), false);
@@ -2169,7 +2794,7 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +    return true;
 +}
 +
-+static bool compare(const std::string & a, const std::string & b, int n_gpu_layers) {
++static bool compare(const std::string & a, const std::string & b, int n_gpu_layers, bool exact = false) {
 +    std::vector<float> la;
 +    std::vector<float> lb;
 +
@@ -2199,7 +2824,7 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +    printf("n_gpu_layers = %2d: max |logit| = %8.3f, max diff = %10.3e, relative = %10.3e, nmse = %10.3e\n",
 +            n_gpu_layers, max_ref, max_diff, rel, nmse);
 +
-+    if (rel > 1e-3 || nmse > 1e-6) {
++    if ((exact && la != lb) || rel > 1e-3 || nmse > 1e-6) {
 +        printf("FAIL: the folded model does not reproduce the plain model\n");
 +        return false;
 +    }
@@ -2212,8 +2837,8 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +
 +    const std::string dir = argc > 1 ? argv[1] : ".";
 +
-+    const std::string plain_path  = dir + "/prism-smooth-dht-plain.gguf";
-+    const std::string folded_path = dir + "/prism-smooth-dht-folded.gguf";
++    const std::string plain_path  = dir + "/sdht-plain.gguf";
++    const std::string folded_path = dir + "/sdht-folded.gguf";
 +
 +    llama_backend_init();
 +    if (getenv("SDHT_LOG") == nullptr) {
@@ -2238,15 +2863,34 @@ index 0000000000000000000000000000000000000000..67b7a3fc2959e65d9eec191b8e7c5b23
 +    ok = compare(plain_path, folded_path,  0) && ok; // CPU: the rotation is a plain matmul
 +    ok = compare(plain_path, folded_path, 99) && ok; // GPU: the rotation goes through the DHT op
 +
++    const std::string legacy_path = dir + "/sdht-legacy.gguf";
++    const std::string mixed_path = dir + "/sdht-mixed.gguf";
++    const std::string incomplete_path = dir + "/sdht-incomplete.gguf";
++    ok = write_model(legacy_path, true, true) && ok;
++    ok = compare(folded_path, legacy_path, 0, true) && ok;
++    ok = compare(folded_path, legacy_path, 99, true) && ok;
++    for (bool incomplete : { false, true }) {
++        const std::string & path = incomplete ? incomplete_path : mixed_path;
++        ok = write_model(path, true, false, !incomplete, incomplete) && ok;
++        llama_model_params params = llama_model_default_params();
++        params.n_gpu_layers = 0;
++        llama_model * model = llama_model_load_from_file(path.c_str(), params);
++        if (model != nullptr) {
++            printf("FAIL: invalid rotation metadata was accepted: %s\n", path.c_str());
++            llama_model_free(model);
++            ok = false;
++        }
++    }
++
 +    printf("%s\n", ok ? "OK" : "FAIL");
 +
 +    return ok ? 0 : 1;
 +}
-diff --git a/tests/test-prism-tq1-0-128.cpp b/tests/test-prism-tq1-0-128.cpp
+diff --git a/tests/test-tq1-0-128.cpp b/tests/test-tq1-0-128.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..d92ec9bb96964f33949f742814e0c5775d7181e3
+index 0000000000000000000000000000000000000000..5cbe8e5fdeae0cbd8c71502fac2c977c088d5a65
 --- /dev/null
-+++ b/tests/test-prism-tq1-0-128.cpp
++++ b/tests/test-tq1-0-128.cpp
 @@ -0,0 +1,413 @@
 +#include "llama.h"
 +#include "ggml.h"
@@ -2557,9 +3201,9 @@ index 0000000000000000000000000000000000000000..d92ec9bb96964f33949f742814e0c577
 +        c.n_head  = std::max(1, c.n_embd/64);
 +    }
 +
-+    const std::string path     = dir + "/prism-tq1-0-128.gguf";
-+    const std::string path_ref = dir + "/prism-tq1-0-128-ref.gguf";
-+    const std::string path_q8  = dir + "/prism-tq1-0-128-q8.gguf";
++    const std::string path     = dir + "/tq1-0-128.gguf";
++    const std::string path_ref = dir + "/tq1-0-128-ref.gguf";
++    const std::string path_q8  = dir + "/tq1-0-128-q8.gguf";
 +
 +    llama_backend_init();
 +    if (getenv("TQ1_E2E_LOG") == nullptr) {

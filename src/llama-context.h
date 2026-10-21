@@ -428,7 +428,7 @@ private:
     // env: LLAMA_GRAPH_REUSE_DISABLE
     bool graph_reuse_disable = false;
 
-    // true after the prism.hadamard coverage check passes on a reserved graph
+    // true after the quantization.rotation coverage check passes on a reserved graph
     bool hadamard_verified = false;
 
     // perf

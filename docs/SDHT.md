@@ -31,11 +31,27 @@ W_folded * x_runtime = W * x
 
 The equality holds before quantization and floating-point error. Applying the transform to the input is required when the weights were exported in that basis. Changing quantized weight bits cannot substitute for this graph operation.
 
-The GGUF metadata uses the inherited `prism.hadamard.*` namespace. Accepted Hartley transform strings are `normalized-smooth-discrete-hartley` and `normalized-discrete-hartley`, with `axis=input-last-dimension` and `sign_mode=identity`. The loader also retains the separately supported Walsh-Hadamard transform route. Keep the declared transform and packed weights consistent.
+New GGUF files use the neutral `quantization.rotation.*` namespace. Accepted Hartley transform strings are `normalized-smooth-discrete-hartley` and `normalized-discrete-hartley`, with `axis=input-last-dimension` and `sign_mode=identity`. The loader also retains the separately supported Walsh-Hadamard transform route. Keep the declared transform and packed weights consistent.
 
-Weights listed in `prism.hadamard.diagonal_weight_names` require a companion tensor named `<weight-name>.input_diag`: an FP16 vector with one value per input channel. It stores the **inverse** diagonal used at runtime. The loader validates the tensor's shape and type, expands it for execution, and attaches it to the transform. Model metadata names, version checks, tied embedding/output handling, and allowed graph paths are validated in `src/llama-model.cpp`.
+Weights listed in `quantization.rotation.diagonal_weight_names` require a companion tensor named `<weight-name>.input_diag`: an FP16 vector with one value per input channel. It stores the **inverse** diagonal used at runtime. The loader validates the tensor's shape and type, expands it for execution, and attaches it to the transform. Model metadata names, version checks, tied embedding/output handling, and allowed graph paths are validated in `src/llama-model.cpp`.
 
 `src/llama-graph.cpp` applies the inverse diagonal and then the rotation before the relevant matrix multiplication. Its transformed-input cache includes the input tensor, rotation, and diagonal; a cache that ignores the diagonal can reuse the wrong activation.
+
+
+### Metadata compatibility and migration
+
+The key suffixes retain their existing meanings: `version`, `tied_output`, `block_size`, `transform`, `axis`, `sign_mode`, `sign_widths`, `sign_values`, `weight_names`, `inverse_weight_names`, `diagonal_weight_names`, and `gdn_v_grouped`. Versions 1 and 2 keep their existing semantics. The Python writer exposes `Keys.Rotation` and `add_rotation_*` methods. New converters write only the canonical namespace.
+
+The loader accepts the previous `prism.hadamard.*` namespace as a complete legacy contract. It rejects files containing keys from both namespaces, even if some values agree, and rejects rotation metadata without a version. This avoids silently mixing transforms or ignoring partial metadata. The legacy spelling exists only for reading and testing old files, rather than as the name of this format.
+
+Existing models do not need to be rewritten to run with this runtime. To create a new file with clean metadata names, install this repository's Python package and run:
+
+```sh
+python -m pip install ./gguf-py
+python -m gguf.scripts.gguf_migrate_rotation input.gguf output.gguf
+```
+
+The migration command requires a new output path, refuses to overwrite files, and copies the tensor-info table and entire tensor payload without re-encoding. Metadata value bytes and tensor names are preserved; only metadata key names and resulting header alignment change. It prints the payload SHA-256. For a large model it reads and writes the whole file, so allow enough disk space. Older runtime builds that recognize only the legacy namespace must be upgraded before loading the renamed file.
 
 ## GPU implementation
 
@@ -55,6 +71,6 @@ The custom ternary GPU matrix-vector path and dequantized fallback are implement
 | GGUF Python definitions | `gguf-py/gguf/constants.py`, `gguf-py/gguf/quants.py` |
 | Metadata loading | `src/llama-model.cpp`, `src/llama-model-loader.cpp`, `src/llama-arch.cpp` |
 | Input graph transform | `src/llama-graph.cpp` |
-| Synthetic tests | `tests/test-prism-smooth-dht.cpp`, `tests/test-prism-tq1-0-128.cpp` |
+| Synthetic tests | `tests/test-sdht.cpp`, `tests/test-tq1-0-128.cpp` |
 
 See `sdht-runtime.patch` for the complete runtime change relative to the pinned upstream base. That patch excludes publication documentation and workflow suffix changes.

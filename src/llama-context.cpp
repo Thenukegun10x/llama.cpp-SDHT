@@ -92,7 +92,7 @@ static void llama_verify_hadamard_graph(
         if (!transformed) {
             throw std::runtime_error(format(
                 "Hadamard-folded weight '%s' is consumed without its activation transform; "
-                "this graph's matmul path does not support prism.hadamard folding",
+                "this graph's matmul path does not support quantization.rotation folding",
                 node->src[0]->name));
         }
     }

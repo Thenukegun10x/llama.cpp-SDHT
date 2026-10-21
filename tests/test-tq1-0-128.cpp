@@ -307,9 +307,9 @@ int main(int argc, char ** argv) {
         c.n_head  = std::max(1, c.n_embd/64);
     }
 
-    const std::string path     = dir + "/prism-tq1-0-128.gguf";
-    const std::string path_ref = dir + "/prism-tq1-0-128-ref.gguf";
-    const std::string path_q8  = dir + "/prism-tq1-0-128-q8.gguf";
+    const std::string path     = dir + "/tq1-0-128.gguf";
+    const std::string path_ref = dir + "/tq1-0-128-ref.gguf";
+    const std::string path_q8  = dir + "/tq1-0-128-q8.gguf";
 
     llama_backend_init();
     if (getenv("TQ1_E2E_LOG") == nullptr) {

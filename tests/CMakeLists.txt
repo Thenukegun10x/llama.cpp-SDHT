@@ -365,8 +365,8 @@ get_filename_component(TEST_TARGET test-c.c NAME_WE)
 add_executable(${TEST_TARGET} test-c.c)
 target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
-llama_build_and_test(test-prism-smooth-dht.cpp LINK llama)
-llama_build_and_test(test-prism-tq1-0-128.cpp LINK llama)
+llama_build_and_test(test-sdht.cpp LINK llama)
+llama_build_and_test(test-tq1-0-128.cpp LINK llama)
 
 if (NOT LLAMA_USE_SYSTEM_GGML)
     # Needs non-public ggml-impl.h

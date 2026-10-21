@@ -430,7 +430,7 @@ extern "C" {
         GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
         GGML_TYPE_Q1_0    = 41,
         GGML_TYPE_Q2_0    = 42,
-        GGML_TYPE_TQ1_0_128 = 43, // Prism PTQ1_0: ternary with a 128-block
+        GGML_TYPE_TQ1_0_128 = 43, // ternary quantization with 128-weight blocks
         GGML_TYPE_COUNT   = 44,
     };
 

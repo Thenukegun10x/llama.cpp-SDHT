@@ -6,7 +6,7 @@ This is an independently published derivative of [ggml-org/llama.cpp](https://gi
 | --- | --- |
 | Upstream base | `6afa9a3134dc4833ab58e625464aa67e5fc7eea5` |
 | Custom runtime source | `3a75675bffeeaa3c8a35c192d7324fed7bcd8939` |
-| Custom runtime delta | 38 files; see `sdht-runtime.patch` |
+| Custom runtime delta | 46 files; see `sdht-runtime.patch` |
 | Runtime license | MIT; see `LICENSE` |
 
 The source was exported from the custom runtime commit, without its local `.git` directory or compiled build trees. Upstream tokenizer vocabulary GGUF fixtures remain under `models/` because they are part of the upstream source/test distribution. They are not the LFM model checkpoint.
@@ -18,3 +18,7 @@ Publication adds a project README, these provenance notes, `docs/SDHT.md`, a mac
 The original local checkout and its upstream remote remain separate. This source tree can be initialized in the new `llama.cpp-SDHT` repository without connecting that working runtime checkout to a new remote.
 
 Report issues specific to this derivative in its repository. Upstream contribution policies and upstream model/backend support should not be interpreted as support commitments for these custom extensions.
+
+## Changes after the source import
+
+The maintained runtime now writes `quantization.rotation.*` metadata and accepts the earlier namespace for existing GGUF files. Writer APIs, diagnostics, and custom tests use neutral rotation/SDHT names. The metadata parser rejects mixed or incomplete namespaces. A metadata-only GGUF migration command is included. These changes leave tensor encoding, kernel arithmetic, and model weights unchanged.

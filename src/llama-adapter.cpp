@@ -336,7 +336,7 @@ static void llama_adapter_lora_init_impl(llama_model & model, FILE * file, llama
         }
         // the LoRA delta of a Hadamard-folded weight reads the transformed input, so the result is wrong
         if (model.hdmd.weight_blocks.count(name) || model.hdmd.inverse_blocks.count(name)) {
-            throw std::runtime_error("LoRA tensor '" + name + "' targets a prism.hadamard folded weight, which is not supported");
+            throw std::runtime_error("LoRA tensor '" + name + "' targets a quantization.rotation folded weight, which is not supported");
         }
 
         auto * buft = ggml_backend_buffer_get_type(model_tensor->buffer);

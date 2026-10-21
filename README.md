@@ -12,7 +12,7 @@ Derived from [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp). The up
 - Loading and applying existing FP16 input smoothing diagonals stored alongside the quantized weights.
 - GGUF type definitions and Python codec support, model-loader integration, and synthetic end-to-end tests.
 
-The custom runtime type ID and `prism.hadamard.*` metadata are extensions used by these model files. Use this runtime for them; a stock llama.cpp build may reject the type or lack the required transform behavior. The historical metadata namespace says "hadamard", but the SDHT path uses a **Hartley** transform. See the [format and implementation notes](docs/SDHT.md).
+The custom runtime type ID and `quantization.rotation.*` metadata are extensions used by these model files. The `transform` field explicitly identifies **Hartley** or Walsh-Hadamard rotation. Existing files with the legacy metadata keys still load. Use this runtime for these models; a stock llama.cpp build may reject the custom type or lack the required transform behavior. See the [format and implementation notes](docs/SDHT.md).
 
 This repository contains inference and codec source. Model checkpoints, teacher caches, Hessian collection, and the complete model-specific PTQ/QAD training pipeline are distributed separately. Running the standard quantizer alone does not reproduce the trained model.
 
@@ -25,7 +25,7 @@ set "HIP_PATH=C:\Program Files\AMD\ROCm\7.1"
 set "ROCM_PATH=%HIP_PATH%"
 set "PATH=%HIP_PATH%\bin;%PATH%"
 cmake -S . -B build-hip -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DGGML_HIP=ON -DGPU_TARGETS=gfx1201 -DGGML_HIP_NO_VMM=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=ON
-cmake --build build-hip --config Release --target llama-server llama-cli llama-perplexity test-prism-smooth-dht test-prism-tq1-0-128 --parallel 4
+cmake --build build-hip --config Release --target llama-server llama-cli llama-perplexity test-sdht test-tq1-0-128 --parallel 4
 ```
 
 Choose `GPU_TARGETS` for your GPU. This example selects only `gfx1201`; it does not promise support for every AMD architecture. Ensure the matching ROCm runtime libraries are on `PATH` when launching the executables.
@@ -40,7 +40,7 @@ For an API-only build with no UI download, configure with `-DLLAMA_BUILD_UI=OFF 
 
 ```sh
 cmake -S . -B build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_HIP=OFF -DGGML_CUDA=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF
-cmake --build build-cpu --config Release --target llama-server llama-cli llama-perplexity test-prism-smooth-dht test-prism-tq1-0-128 --parallel 4
+cmake --build build-cpu --config Release --target llama-server llama-cli llama-perplexity test-sdht test-tq1-0-128 --parallel 4
 ```
 
 On Windows, use an x64 developer shell and add `-G Ninja` for the same output layout used below. Multi-configuration generators can place executables under `bin/Release` instead of `bin`.
@@ -63,12 +63,12 @@ For other operating systems, use the corresponding executable under `build-hip/b
 ## Tests and validation scope
 
 ```sh
-ctest --test-dir build-hip -C Release -R "^test-prism-(smooth-dht|tq1-0-128)$" --output-on-failure
+ctest --test-dir build-hip -C Release -R "^test-(sdht|tq1-0-128)$" --output-on-failure
 ```
 
-`test-prism-smooth-dht` compares synthetic plain and folded models. `test-prism-tq1-0-128` compares CPU, native GPU matrix-vector, and dequantized fallback paths against F16/Q8 controls. The latter test requires a working CUDA/HIP backend to validate distinct GPU paths; it is not a CPU-only pass criterion. Both tests write small synthetic GGUF files in the test working directory.
+`test-sdht` compares synthetic plain and folded models, checks identical logits for canonical and legacy metadata, and rejects mixed or incomplete namespaces. `test-tq1-0-128` compares CPU, native GPU matrix-vector, and dequantized fallback paths against F16/Q8 controls. The latter test requires a working CUDA/HIP backend to validate distinct GPU paths; it is not a CPU-only pass criterion. Both tests write small synthetic GGUF files in the test working directory.
 
-The published source is pinned to runtime commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. The AMD HIP backend works on the tested Windows setup. The NVIDIA CUDA backend has also been tested by the maintainer and confirmed to work well. The additional custom format is not implemented for every backend inherited from upstream.
+The runtime builds on source commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. The AMD HIP backend works on the tested Windows setup. The NVIDIA CUDA backend has also been tested by the maintainer and confirmed to work well. The additional custom format is not implemented for every backend inherited from upstream.
 
 Upstream GitHub Actions are retained with `.disabled` suffixes so publication does not automatically launch the upstream build/release matrix. Enable selected workflows after adapting them for this repository.
 

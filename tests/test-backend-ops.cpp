@@ -10779,7 +10779,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_mul_mat(type_a,    GGML_TYPE_F32, 16,  8, 16*256, { 1,  1}, {1, 1}));
     }
 
-    // tq1_0_128: the shapes used by tests/test-prism-tq1-0-128.cpp
+    // tq1_0_128: the shapes used by tests/test-tq1-0-128.cpp
     for (ggml_type type_a : { GGML_TYPE_TQ1_0_128 }) {
         test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 256, 4, 256, { 1, 1 }, { 1, 1 }));
         test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 512, 4, 256, { 1, 1 }, { 1, 1 }));
