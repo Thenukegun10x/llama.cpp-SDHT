@@ -68,7 +68,7 @@ ctest --test-dir build-hip -C Release -R "^test-(sdht|tq1-0-128)$" --output-on-f
 
 `test-sdht` compares synthetic plain and folded models, checks identical logits for canonical and legacy metadata, and rejects mixed or incomplete namespaces. `test-tq1-0-128` compares CPU, native GPU matrix-vector, and dequantized fallback paths against F16/Q8 controls. The latter test requires a working CUDA/HIP backend to validate distinct GPU paths; it is not a CPU-only pass criterion. Both tests write small synthetic GGUF files in the test working directory.
 
-The runtime builds on source commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. The AMD HIP backend works on the tested Windows setup. The NVIDIA CUDA backend has also been tested by the maintainer and confirmed to work well. The additional custom format is not implemented for every backend inherited from upstream.
+The runtime builds on source commit `3a75675bffeeaa3c8a35c192d7324fed7bcd8939`. The AMD HIP backend works on the tested Windows setup. The NVIDIA CUDA backend has also been tested and is in working order. The additional custom format is not implemented for every backend inherited from upstream.
 
 Upstream GitHub Actions are retained with `.disabled` suffixes so publication does not automatically launch the upstream build/release matrix. Enable selected workflows after adapting them for this repository.
 
